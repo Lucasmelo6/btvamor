@@ -240,7 +240,7 @@ input:checked+.tslider:before{transform:translateX(18px)}
     <div class="login-brand">
       <span class="hrt">❤️</span>
       <h1>Bate Volta<br><span>do Amor</span></h1>
-      <p>Sistema de Gestão · São João</p>
+      <p>Sistema de Gestão de Passageiros</p>
     </div>
     <div class="login-err" id="login-err">Usuário ou senha incorretos</div>
     <div class="lf"><label>Usuário</label><input type="text" id="li-user" placeholder="seu.usuario"></div>
@@ -646,7 +646,7 @@ function navigate(page){
 function afterRender(page){
   if(page==='passageiros')filterPass();
   if(page==='onibus')renderBusCards();
-  if(page==='financeiro')renderFinCharts();
+  if(page==='financeiro'){renderFinCharts();renderPCCards();}
 }
 
 function toggleSb(){document.getElementById('sidebar').classList.toggle('on');document.getElementById('ov').classList.toggle('on')}
@@ -729,11 +729,12 @@ function pgDashboard(){
     <div class="card">
       <div class="card-t"><div class="card-t-left">Últimas Vendas</div><button class="btn br bsm" data-action="open-venda">+ Nova</button></div>
       <div class="tw"><table>
-        <thead><tr><th>Cliente</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Pago</th><th>Status</th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Pago</th><th>Status</th><th>Responsável</th></tr></thead>
         <tbody>${ultimas.map(v=>{
           const b=db.onibus.find(x=>x.id===v.busId);
-          return`<tr><td><strong>${escHtml(v.nome)}</strong>${v.isComp?'<span class="chip cb" style="margin-left:6px">acomp</span>':''}</td><td>${escHtml(v.destino.split('–')[0].trim())}</td><td>${fmtD(v.data)}</td><td>${b?`#${b.num}`:'—'}</td><td style="color:${isPaid(v)?'var(--gr)':'var(--am)'}">${fmt(v.valorPago)}</td><td>${isPaid(v)?'<span class="chip cg">✓ Quitado</span>':'<span class="chip ca">'+pct(v)+'% pago</span>'}</td></tr>`;
-        }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--g);padding:24px">Nenhuma venda</td></tr>'}</tbody>
+          const resp=v.addMonitor?`<span class="chip ca" style="font-size:.54rem">🚌</span> ${escHtml(v.criadoPor||'')}`:escHtml(v.criadoPor||'—');
+          return`<tr><td><strong>${escHtml(v.nome)}</strong>${v.isComp?'<span class="chip cb" style="margin-left:6px">acomp</span>':''}</td><td>${escHtml(v.destino.split('–')[0].trim())}</td><td>${fmtD(v.data)}</td><td>${b?`#${b.num}`:'—'}</td><td style="color:${isPaid(v)?'var(--gr)':'var(--am)'}">${v.cortesia?'🎁':fmt(v.valorPago)}</td><td>${v.cortesia?'<span class="chip cb">🎁 Cortesia</span>':isPaid(v)?'<span class="chip cg">✓ Quitado</span>':'<span class="chip ca">'+pct(v)+'% pago</span>'}</td><td style="font-size:.72rem;color:var(--g)">${resp}</td></tr>`;
+        }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--g);padding:24px">Nenhuma venda</td></tr>'}</tbody>
       </table></div>
     </div>`;
 }
@@ -956,8 +957,16 @@ function calcCompPay(){
   } else wrap.style.display='none';
 }
 
-function showAddComp(){document.getElementById('add-comp-form').style.display='block'}
+let editCompTid=null; // when editing an existing companion in the list
+
+function showAddComp(){
+  editCompTid=null;
+  document.getElementById('btn-add-comp').textContent='✓ Confirmar';
+  document.getElementById('add-comp-form').style.display='block';
+}
 function hideAddComp(){
+  editCompTid=null;
+  document.getElementById('btn-add-comp').textContent='✓ Confirmar';
   document.getElementById('add-comp-form').style.display='none';
   document.getElementById('c-nome').value='';
   document.getElementById('c-whats').value='';
@@ -971,17 +980,37 @@ function addComp(){
   if(!nome){toast('Nome do acompanhante obrigatório','r');return}
   const total=parseFloat(document.getElementById('v-valor-total').value)||0;
   const isCort=document.getElementById('c-cortesia').checked;
-  comps.push({
-    tid:'t'+Date.now()+Math.random().toString(36).slice(2,5),
+  const dados={
     nome,
     whats:document.getElementById('c-whats').value.trim(),
     embarque:document.getElementById('c-embarque').value||'', // '' = same as titular
     valorTotal:total,
     valorPago:isCort?0:(parseFloat(document.getElementById('c-pago').value)||0),
     cortesia:isCort
-  });
+  };
+  if(editCompTid){
+    // Update existing companion in the array, preserving tid and db id
+    const c=comps.find(x=>x.tid===editCompTid);
+    if(c)Object.assign(c,dados);
+    toast('✓ Acompanhante atualizado','g');
+  } else {
+    comps.push({tid:'t'+Date.now()+Math.random().toString(36).slice(2,5),...dados});
+  }
   hideAddComp();
   renderCompList();
+}
+function editComp(tid){
+  const c=comps.find(x=>x.tid===tid);
+  if(!c)return;
+  editCompTid=tid;
+  document.getElementById('c-nome').value=c.nome;
+  document.getElementById('c-whats').value=c.whats||'';
+  const ce=document.getElementById('c-embarque');if(ce)ce.value=c.embarque||'';
+  document.getElementById('c-pago').value=c.cortesia?'':c.valorPago;
+  document.getElementById('c-cortesia').checked=!!c.cortesia;
+  document.getElementById('btn-add-comp').textContent='✓ Salvar alteração';
+  document.getElementById('add-comp-form').style.display='block';
+  calcCompPay();
 }
 function removeComp(tid){
   comps=comps.filter(c=>c.tid!==tid);
@@ -998,9 +1027,10 @@ function renderCompList(){
     const p=c.valorTotal?Math.min(100,Math.round(c.valorPago/c.valorTotal*100)):100;
     const embLabel=c.embarque?`📍 ${escHtml(c.embarque)}`:'📍 mesmo do titular';
     const payLabel=c.cortesia?'<span style="color:var(--bl)">🎁 Cortesia</span>':`${fmt(c.valorPago)} de ${fmt(c.valorTotal)} ${p<100?'<span style="color:var(--am)">('+p+'%)</span>':'<span style="color:var(--gr)">✓</span>'}`;
-    return`<div class="comp-item"><div style="flex:1"><div class="comp-name">${escHtml(c.nome)}</div><div class="comp-info">${escHtml(c.whats||'—')} · ${embLabel} · ${payLabel}</div></div><button class="btn b-dng bxs" data-rm-comp="${c.tid}">✕</button></div>`;
+    return`<div class="comp-item"><div style="flex:1"><div class="comp-name">${escHtml(c.nome)}</div><div class="comp-info">${escHtml(c.whats||'—')} · ${embLabel} · ${payLabel}</div></div><div style="display:flex;gap:5px"><button class="btn bg bxs" data-edit-comp="${c.tid}" title="Editar">✏️</button><button class="btn b-dng bxs" data-rm-comp="${c.tid}" title="Remover">✕</button></div></div>`;
   }).join('');
   el.querySelectorAll('[data-rm-comp]').forEach(b=>b.addEventListener('click',()=>removeComp(b.dataset.rmComp)));
+  el.querySelectorAll('[data-edit-comp]').forEach(b=>b.addEventListener('click',()=>editComp(b.dataset.editComp)));
 }
 
 async function salvarVenda(){
@@ -1104,12 +1134,12 @@ function pgPassageiros(){
       <div class="f"><label class="lbl">Destino</label><select id="fp-d"><option value="">Todos</option>${destOpts}</select></div>
       <div class="f"><label class="lbl">Data</label><select id="fp-dt"><option value="">Todas</option>${dateOpts}</select></div>
       <div class="f"><label class="lbl">Pagamento</label><select id="fp-p"><option value="">Todos</option><option value="pago">Quitado</option><option value="parcial">Parcial</option><option value="cortesia">Cortesia</option></select></div>
-      <div class="f"><label class="lbl">Cadastrado por</label><select id="fp-c"><option value="">Todos</option>${colabOpts}</select></div>
+      <div class="f"><label class="lbl">Planilhado por</label><select id="fp-c"><option value="">Todos</option>${colabOpts}</select></div>
       <div style="margin-top:auto"><button class="btn br bsm" data-action="open-venda">+ Nova</button></div>
     </div>
     <div class="card" style="padding:0">
       <div class="tw"><table>
-        <thead><tr><th>#</th><th>Nome</th><th>WhatsApp</th><th>Embarque</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Total</th><th>Pago</th><th>Status</th><th>Cadastrado por</th><th>Ações</th></tr></thead>
+        <thead><tr><th>#</th><th>Nome</th><th>WhatsApp</th><th>Embarque</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Total</th><th>Pago</th><th>Status</th><th>Planilhado por</th><th>Ações</th></tr></thead>
         <tbody id="tbody-pass"></tbody>
       </table></div>
     </div>`;
@@ -1213,44 +1243,65 @@ function delVenda(id){
 // ══════════════════════════════════════════════════
 function pgOnibus(){
   const destOpts=db.cidades.map(c=>`<option>${escHtml(c.nome)}</option>`).join('');
-  const dateOpts=[...new Set(db.vendas.map(v=>v.data))].sort().map(d=>`<option value="${d}">${fmtD(d)}</option>`).join('');
+  const planilhadores=[...new Set(db.vendas.map(v=>v.criadoPor).filter(Boolean))].sort();
+  const planOpts=planilhadores.map(p=>`<option>${escHtml(p)}</option>`).join('');
   return`
     <div class="ph"><h2>Ônibus</h2><p>Gestão e configuração dos ônibus</p></div>
     <div class="fbar">
-      <div class="f"><label class="lbl">Data</label><select id="fo-d"><option value="">Todas</option>${dateOpts}</select></div>
-      <div class="f"><label class="lbl">Destino</label><select id="fo-dt"><option value="">Todos</option>${destOpts}</select></div>
       <div class="f"><label class="lbl">Exibir</label><select id="fo-arq"><option value="ativos">Somente ativos</option><option value="arquivados">Somente arquivados</option><option value="todos">Todos</option></select></div>
+      <div class="f"><label class="lbl">Data</label><select id="fo-d"><option value="">Todas</option></select></div>
+      <div class="f"><label class="lbl">Destino</label><select id="fo-dt"><option value="">Todos</option>${destOpts}</select></div>
+      <div class="f"><label class="lbl">Planilhado por</label><select id="fo-pl"><option value="">Todos</option>${planOpts}</select></div>
     </div>
     <div id="bus-area"></div>`;
 }
 
+// Rebuild the date dropdown based on the current "Exibir" (archive) filter
+function refreshOnibusDateOptions(){
+  const farq=document.getElementById('fo-arq')?.value||'ativos';
+  const dsel=document.getElementById('fo-d');
+  if(!dsel)return;
+  const current=dsel.value;
+  let buses=db.onibus.slice();
+  if(farq==='ativos')buses=buses.filter(b=>!b.arquivado);
+  else if(farq==='arquivados')buses=buses.filter(b=>b.arquivado);
+  const datas=[...new Set(buses.map(b=>b.data))].sort();
+  dsel.innerHTML='<option value="">Todas</option>'+datas.map(d=>`<option value="${d}">${fmtD(d)}</option>`).join('');
+  // Keep current selection only if still valid
+  if(datas.includes(current))dsel.value=current;
+}
+
 function renderBusCards(){
-  ['fo-d','fo-dt','fo-arq'].forEach(id=>{
+  ['fo-d','fo-dt','fo-arq','fo-pl'].forEach(id=>{
     const el=document.getElementById(id);
     if(el&&!el.dataset.bound){
-      el.addEventListener('change',renderBusCards);
+      el.addEventListener('change',()=>{
+        if(el.id==='fo-arq')refreshOnibusDateOptions();
+        renderBusCards();
+      });
       el.dataset.bound='1';
     }
   });
+  refreshOnibusDateOptions();
   const fd=document.getElementById('fo-d')?.value||'';
   const fdt=document.getElementById('fo-dt')?.value||'';
   const farq=document.getElementById('fo-arq')?.value||'ativos';
+  const fpl=document.getElementById('fo-pl')?.value||'';
   let buses=db.onibus.filter(b=>(!fd||b.data===fd)&&(!fdt||b.destino===fdt));
   if(farq==='ativos')buses=buses.filter(b=>!b.arquivado);
   else if(farq==='arquivados')buses=buses.filter(b=>b.arquivado);
-  // Active buses first, then by date/num
+  // When filtering by planilhador, only show buses that contain at least one passenger from that person
+  if(fpl)buses=buses.filter(b=>db.vendas.some(v=>v.busId===b.id&&v.criadoPor===fpl));
   buses=buses.sort((a,b)=>(a.arquivado?1:0)-(b.arquivado?1:0)||a.data.localeCompare(b.data)||a.num-b.num);
   const area=document.getElementById('bus-area');
   if(!area)return;
   if(!buses.length){area.innerHTML='<div style="color:var(--g);padding:32px;text-align:center">Nenhum ônibus encontrado com esses filtros.</div>';return}
   area.innerHTML=buses.map(b=>{
-    const pax=db.vendas.filter(v=>v.busId===b.id);
+    let pax=db.vendas.filter(v=>v.busId===b.id);
+    const paxView=fpl?pax.filter(v=>v.criadoPor===fpl):pax;
     const ocp=Math.round(pax.length/b.cap*100);
     const mon=db.users.find(u=>u.id===b.monitorId);
-    const outros=b.outros||[];
-    const totalCusto=(b.aluguel||0)+(b.custoMon||0)+outros.reduce((s,o)=>s+o.val,0);
-    const rec=pax.reduce((s,v)=>s+v.valorPago,0);
-    const lucroB=rec-totalCusto;
+    const recFpl=fpl?paxView.reduce((s,v)=>s+v.valorPago,0):0;
     return`
       <div class="card" style="margin-bottom:14px${b.arquivado?';opacity:.7':''}">
         <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:12px">
@@ -1263,6 +1314,7 @@ function renderBusCards(){
               ${mon?`<span class="chip cb">👤 ${escHtml(mon.nome)}</span>`:'<span class="chip cw">Sem monitor</span>'}
               ${!b.visivel?'<span class="chip cw">👁 Oculto</span>':''}
               ${b.arquivado?'<span class="chip cw">📦 Arquivado</span>':''}
+              ${fpl?`<span class="chip ca">📋 ${escHtml(fpl)}: ${paxView.length} pass · ${fmt(recFpl)}</span>`:''}
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1275,18 +1327,14 @@ function renderBusCards(){
           <div class="prog-hd"><span>Ocupação</span><span>${ocp}%</span></div>
           <div class="prog-bar"><div class="prog-fill" style="width:${ocp}%;background:${ocp>=90?'var(--r)':ocp>=60?'var(--am)':'var(--gr)'}"></div></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;font-size:.78rem">
-          <div style="background:var(--k3);border-radius:2px;padding:10px"><div style="color:var(--g);margin-bottom:3px">Receita</div><div style="font-weight:700;color:var(--gr)">${fmt(rec)}</div></div>
-          <div style="background:var(--k3);border-radius:2px;padding:10px"><div style="color:var(--g);margin-bottom:3px">Custos</div><div style="font-weight:700;color:var(--am)">${fmt(totalCusto)}</div></div>
-          <div style="background:var(--k3);border-radius:2px;padding:10px"><div style="color:var(--g);margin-bottom:3px">Lucro</div><div style="font-weight:700;color:${lucroB>=0?'var(--gr)':'var(--r2)'}">${fmt(lucroB)}</div></div>
-        </div>
-        ${pax.length?`<div class="tw"><table>
-          <thead><tr><th>#</th><th>Nome</th><th>Embarque</th><th>WhatsApp</th><th>Status Pag.</th><th>Grupo</th></tr></thead>
-          <tbody>${pax.map((p,i)=>`
+        ${paxView.length?`<div class="tw"><table>
+          <thead><tr><th>#</th><th>Nome</th><th>Embarque</th><th>WhatsApp</th><th>Status Pag.</th><th>Grupo</th><th>Planilhado por</th></tr></thead>
+          <tbody>${paxView.map((p,i)=>`
             <tr><td style="font-family:'Bebas Neue',sans-serif;color:var(--r);font-size:.95rem">${i+1}</td>
             <td><strong>${escHtml(p.nome)}</strong>${p.cortesia?'<span class="chip cb" style="margin-left:5px;font-size:.56rem">🎁</span>':''}</td><td style="color:var(--g)">${escHtml(p.embarque)}</td><td>${escHtml(p.whats)}</td>
             <td>${p.cortesia?'<span class="chip cb">🎁 Cortesia</span>':isPaid(p)?'<span class="chip cg">✓</span>':'<span class="chip ca">'+pct(p)+'%</span>'}</td>
-            <td>${p.isComp?'<span class="chip cb">Acomp.</span>':p.groupId?'<span class="chip cw">Titular</span>':''}</td></tr>`).join('')}
+            <td>${p.isComp?'<span class="chip cb">Acomp.</span>':p.groupId?'<span class="chip cw">Titular</span>':''}</td>
+            <td style="font-size:.72rem;color:var(--g)">${p.addMonitor?'<span class="chip ca" style="font-size:.54rem">🚌</span> ':''}${escHtml(p.criadoPor||'—')}</td></tr>`).join('')}
           </tbody>
         </table></div>`:'<div style="color:var(--g);font-size:.82rem;padding:10px 0">Nenhum passageiro neste ônibus</div>'}
       </div>`;
@@ -1321,20 +1369,8 @@ function buildModalBus(){
         <label class="lbl" style="margin:0">Visível para monitores</label>
         <label class="toggle"><input type="checkbox" id="mb-vis"><span class="tslider"></span></label>
       </div>
-      <div class="divider"></div>
-      <div class="card-t" style="margin-bottom:12px">💰 Custos</div>
-      <div class="fg2">
-        <div class="f"><label class="lbl">Aluguel do Ônibus (R$)</label><input type="number" id="mb-aluguel" placeholder="0.00" step="0.01"></div>
-        <div class="f"><label class="lbl">Custo do Monitor (R$)</label><input type="number" id="mb-custo-mon" placeholder="0.00" step="0.01"></div>
-      </div>
-      <div style="margin-top:12px">
-        <div class="lbl" style="margin-bottom:8px">Outros Custos</div>
-        <div id="outros-custos"></div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <input type="text" id="oc-nome" placeholder="Descrição" style="flex:2">
-          <input type="number" id="oc-val" placeholder="R$" style="flex:1">
-          <button class="btn bg bsm" id="btn-add-outro">+</button>
-        </div>
+      <div style="font-size:.74rem;color:var(--g);background:var(--k3);border-radius:2px;padding:10px 12px;margin-top:8px">
+        💡 Selecione um monitor para que o ônibus fique disponivel para consulta</strong>.
       </div>
       <div class="btn-row">
         <button class="btn br" id="btn-save-bus">✅ Salvar</button>
@@ -1348,7 +1384,6 @@ function openBusConfig(bid){
   const b=db.onibus.find(x=>x.id===bid);
   if(!b){toast('Ônibus não encontrado','r');return}
   editBusId=bid;
-  outroCustos=[...(b.outros||[])];
   let modal=document.getElementById('modal-bus');
   if(!modal){
     modal=document.createElement('div');
@@ -1360,39 +1395,12 @@ function openBusConfig(bid){
   document.getElementById('mb-title').textContent=`Ônibus ${b.num} — ${b.destino}`;
   document.getElementById('mb-cap').value=b.cap;
   document.getElementById('mb-vis').checked=b.visivel!==false;
-  document.getElementById('mb-aluguel').value=b.aluguel||'';
-  document.getElementById('mb-custo-mon').value=b.custoMon||'';
   const monSel=document.getElementById('mb-monitor');
   const monitors=db.users.filter(u=>u.role==='monitor'&&u.ativo!==false);
   monSel.innerHTML='<option value="">Sem monitor</option>'+monitors.map(m=>`<option value="${m.id}"${b.monitorId===m.id?' selected':''}>${escHtml(m.nome)}</option>`).join('');
-  renderOutros();
-  document.getElementById('btn-add-outro').addEventListener('click',addOutroCusto);
   document.getElementById('btn-save-bus').addEventListener('click',salvarBusConfig);
   modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
   openM('modal-bus');
-}
-
-function renderOutros(){
-  const el=document.getElementById('outros-custos');
-  el.innerHTML=outroCustos.map((o,i)=>`
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <input type="text" value="${escHtml(o.nome)}" style="flex:2" data-oc-nome="${i}">
-      <input type="number" value="${o.val}" style="flex:1" data-oc-val="${i}">
-      <button class="btn b-dng bxs" data-rm-oc="${i}">✕</button>
-    </div>`).join('');
-  el.querySelectorAll('[data-oc-nome]').forEach(inp=>inp.addEventListener('change',e=>{outroCustos[+e.target.dataset.ocNome].nome=e.target.value}));
-  el.querySelectorAll('[data-oc-val]').forEach(inp=>inp.addEventListener('change',e=>{outroCustos[+e.target.dataset.ocVal].val=parseFloat(e.target.value)||0}));
-  el.querySelectorAll('[data-rm-oc]').forEach(b=>b.addEventListener('click',()=>{outroCustos.splice(+b.dataset.rmOc,1);renderOutros()}));
-}
-
-function addOutroCusto(){
-  const nome=document.getElementById('oc-nome').value.trim();
-  const val=parseFloat(document.getElementById('oc-val').value)||0;
-  if(!nome){toast('Digite a descrição','r');return}
-  outroCustos.push({nome,val});
-  document.getElementById('oc-nome').value='';
-  document.getElementById('oc-val').value='';
-  renderOutros();
 }
 
 async function salvarBusConfig(){
@@ -1401,9 +1409,6 @@ async function salvarBusConfig(){
   b.cap=parseInt(document.getElementById('mb-cap').value)||48;
   b.monitorId=document.getElementById('mb-monitor').value||null;
   b.visivel=document.getElementById('mb-vis').checked;
-  b.aluguel=parseFloat(document.getElementById('mb-aluguel').value)||0;
-  b.custoMon=parseFloat(document.getElementById('mb-custo-mon').value)||0;
-  b.outros=[...outroCustos];
   allocateRoute(b.destino,b.data);
   showLoader(true);
   await syncRoute(b.destino,b.data);
@@ -1647,21 +1652,9 @@ function pgFinanceiro(){
   const lucro=totalPago-totalCustos;
   const cortesias=v.filter(x=>x.cortesia);
   const cortesiaCount=cortesias.length;
-  const cortesiaValor=cortesias.reduce((s,x)=>s+x.valorTotal,0); // valor "abdicado"
-  const byDest={};
-  v.forEach(x=>{
-    if(!byDest[x.destino])byDest[x.destino]={tot:0,pag:0,cnt:0};
-    if(!x.cortesia)byDest[x.destino].tot+=x.valorTotal;
-    byDest[x.destino].pag+=x.valorPago;byDest[x.destino].cnt++;
-  });
-  const byBus=db.onibus.map(b=>{
-    const pax=db.vendas.filter(v=>v.busId===b.id);
-    const rec=pax.reduce((s,v)=>s+v.valorPago,0);
-    const custo=(b.aluguel||0)+(b.custoMon||0)+(b.outros||[]).reduce((s,o)=>s+o.val,0);
-    return{b,pax:pax.length,rec,custo,lucro:rec-custo};
-  });
+  const cortesiaValor=cortesias.reduce((s,x)=>s+x.valorTotal,0);
   return`
-    <div class="ph"><h2>Financeiro</h2><p>Receita, custos e lucros</p></div>
+    <div class="ph"><h2>Financeiro</h2><p>Visão geral e prestação de contas</p></div>
     <div class="sgrid">
       <div class="sc"><div class="sc-icon">📋</div><div class="sc-lbl">Esperado</div><div class="sc-val">${fmt(totalTotal)}</div><div class="sc-sub">exclui cortesias</div></div>
       <div class="sc"><div class="sc-icon">✅</div><div class="sc-lbl">Recebido</div><div class="sc-val" style="color:var(--gr)">${fmt(totalPago)}</div></div>
@@ -1669,25 +1662,201 @@ function pgFinanceiro(){
       <div class="sc"><div class="sc-icon">📊</div><div class="sc-lbl">Lucro Líquido</div><div class="sc-val" style="color:${lucro>=0?'var(--gr)':'var(--r2)'}">${fmt(lucro)}</div></div>
       <div class="sc"><div class="sc-icon">🎁</div><div class="sc-lbl">Cortesias</div><div class="sc-val" style="color:var(--bl)">${cortesiaCount}</div><div class="sc-sub">equiv. ${fmt(cortesiaValor)} não cobrado</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
-      <div class="card">
-        <div class="card-t">Por Destino</div>
-        ${Object.keys(byDest).length?`<div class="tw"><table>
-          <thead><tr><th>Destino</th><th>Pass.</th><th>Esperado</th><th>Recebido</th></tr></thead>
-          <tbody>${Object.entries(byDest).sort((a,b)=>b[1].tot-a[1].tot).map(([d,s])=>`
-            <tr><td>${escHtml(d.split('–')[0].trim())}</td><td>${s.cnt}</td><td>${fmt(s.tot)}</td><td style="color:var(--gr)">${fmt(s.pag)}</td></tr>`).join('')}
+    ${renderPrestacaoContas()}`;
+}
+
+// Prestação de contas: filtros + custos editáveis + arrecadação por responsável
+function renderPrestacaoContas(){
+  const destOpts=db.cidades.map(c=>`<option>${escHtml(c.nome)}</option>`).join('');
+  return`
+    <div class="ph" style="margin-top:8px;margin-bottom:14px"><h2 style="font-size:1.5rem">📋 Prestação de Contas</h2><p>Custos, arrecadação e resultado por ônibus</p></div>
+    <div class="fbar">
+      <div class="f"><label class="lbl">Data</label><select id="fpc-d"><option value="">Todas</option></select></div>
+      <div class="f"><label class="lbl">Destino</label><select id="fpc-dt"><option value="">Todos</option>${destOpts}</select></div>
+      <div class="f"><label class="lbl">Exibir</label><select id="fpc-arq"><option value="ativos">Somente ativos</option><option value="arquivados">Somente arquivados</option><option value="todos">Todos</option></select></div>
+    </div>
+    <div id="pc-area"></div>`;
+}
+
+// Rebuild the PC date dropdown based on archive filter
+function refreshPCDateOptions(){
+  const farq=document.getElementById('fpc-arq')?.value||'ativos';
+  const dsel=document.getElementById('fpc-d');
+  if(!dsel)return;
+  const current=dsel.value;
+  let buses=db.onibus.slice();
+  if(farq==='ativos')buses=buses.filter(b=>!b.arquivado);
+  else if(farq==='arquivados')buses=buses.filter(b=>b.arquivado);
+  const datas=[...new Set(buses.map(b=>b.data))].sort();
+  dsel.innerHTML='<option value="">Todas</option>'+datas.map(d=>`<option value="${d}">${fmtD(d)}</option>`).join('');
+  if(datas.includes(current))dsel.value=current;
+}
+
+function renderPCCards(){
+  ['fpc-d','fpc-dt','fpc-arq'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el&&!el.dataset.bound){
+      el.addEventListener('change',()=>{
+        if(el.id==='fpc-arq')refreshPCDateOptions();
+        renderPCCards();
+      });
+      el.dataset.bound='1';
+    }
+  });
+  refreshPCDateOptions();
+  const fd=document.getElementById('fpc-d')?.value||'';
+  const fdt=document.getElementById('fpc-dt')?.value||'';
+  const farq=document.getElementById('fpc-arq')?.value||'ativos';
+  let buses=db.onibus.filter(b=>(!fd||b.data===fd)&&(!fdt||b.destino===fdt));
+  if(farq==='ativos')buses=buses.filter(b=>!b.arquivado);
+  else if(farq==='arquivados')buses=buses.filter(b=>b.arquivado);
+  buses=buses.sort((a,b)=>(a.arquivado?1:0)-(b.arquivado?1:0)||a.data.localeCompare(b.data)||a.num-b.num);
+  const area=document.getElementById('pc-area');
+  if(!area)return;
+  if(!buses.length){area.innerHTML='<div class="card" style="color:var(--g);text-align:center">Nenhum ônibus encontrado com esses filtros.</div>';return}
+
+  // Consolidated totals across filtered buses
+  let gRec=0,gCusto=0;
+  buses.forEach(b=>{
+    const pax=db.vendas.filter(v=>v.busId===b.id);
+    gRec+=pax.reduce((s,v)=>s+v.valorPago,0);
+    gCusto+=(b.aluguel||0)+(b.custoMon||0)+(b.outros||[]).reduce((s,o)=>s+o.val,0);
+  });
+  const gLucro=gRec-gCusto;
+
+  const cards=buses.map(b=>{
+    const pax=db.vendas.filter(v=>v.busId===b.id);
+    const outros=b.outros||[];
+    const totalCusto=(b.aluguel||0)+(b.custoMon||0)+outros.reduce((s,o)=>s+o.val,0);
+    const rec=pax.reduce((s,v)=>s+v.valorPago,0);
+    const lucroB=rec-totalCusto;
+    // Arrecadação por responsável
+    const byPlan={};
+    pax.forEach(v=>{
+      const k=v.criadoPor||'(sem responsável)';
+      if(!byPlan[k])byPlan[k]={count:0,rec:0,cortesias:0};
+      byPlan[k].count++;
+      byPlan[k].rec+=v.valorPago;
+      if(v.cortesia)byPlan[k].cortesias++;
+    });
+    const planRows=Object.entries(byPlan).sort((a,b)=>b[1].rec-a[1].rec).map(([nome,s])=>`
+      <tr><td><strong>${escHtml(nome)}</strong></td><td>${s.count}${s.cortesias?` <span style="font-size:.62rem;color:var(--bl)">(${s.cortesias} cortesia)</span>`:''}</td><td style="color:var(--gr);font-weight:700">${fmt(s.rec)}</td></tr>`).join('')
+      ||'<tr><td colspan="3" style="color:var(--g);text-align:center;padding:14px">Nenhum passageiro</td></tr>';
+    const outrosRows=outros.map((o,i)=>`
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <input type="text" value="${escHtml(o.nome)}" style="flex:2" data-pc-oc-nome="${b.id}|${i}" placeholder="Descrição">
+        <input type="number" value="${o.val}" style="flex:1" data-pc-oc-val="${b.id}|${i}" placeholder="R$">
+        <button class="btn b-dng bxs" data-pc-rm-oc="${b.id}|${i}">✕</button>
+      </div>`).join('');
+    return`
+      <div class="card" style="margin-bottom:14px${b.arquivado?';opacity:.8':''}">
+        <div class="card-t" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          🚌 Ônibus ${b.num} — ${escHtml(b.destino)} · ${fmtD(b.data)}
+          ${b.arquivado?'<span class="chip cw">📦 arquivado</span>':''}
+          <span class="chip cg" style="margin-left:auto">${pax.length} passageiros</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;font-size:.78rem">
+          <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Receita (arrecadado)</div><div style="font-weight:700;color:var(--gr);font-size:1rem">${fmt(rec)}</div></div>
+          <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Custos</div><div style="font-weight:700;color:var(--am);font-size:1rem">${fmt(totalCusto)}</div></div>
+          <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Lucro</div><div style="font-weight:700;color:${lucroB>=0?'var(--gr)':'var(--r2)'};font-size:1rem">${fmt(lucroB)}</div></div>
+        </div>
+
+        <div style="background:var(--k3);border-radius:3px;padding:14px;margin-bottom:16px">
+          <div class="lbl" style="margin-bottom:10px">💰 Configurar custos deste ônibus</div>
+          <div class="fg2">
+            <div class="f"><label class="lbl">Aluguel do Ônibus (R$)</label><input type="number" value="${b.aluguel||''}" data-pc-aluguel="${b.id}" placeholder="0.00" step="0.01"></div>
+            <div class="f"><label class="lbl">Custo do Monitor (R$)</label><input type="number" value="${b.custoMon||''}" data-pc-customon="${b.id}" placeholder="0.00" step="0.01"></div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="lbl" style="margin-bottom:8px">Outros Custos</div>
+            <div data-pc-outros="${b.id}">${outrosRows||'<div style="font-size:.74rem;color:var(--g);margin-bottom:6px">Nenhum outro custo</div>'}</div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <input type="text" data-pc-noc-nome="${b.id}" placeholder="Descrição (ex: pedágio)" style="flex:2">
+              <input type="number" data-pc-noc-val="${b.id}" placeholder="R$" style="flex:1">
+              <button class="btn bg bsm" data-pc-add-oc="${b.id}">+</button>
+            </div>
+          </div>
+          <div style="margin-top:12px"><button class="btn br bsm" data-pc-save="${b.id}">✅ Salvar custos</button></div>
+        </div>
+
+        <div class="lbl" style="margin-bottom:8px">👥 Arrecadação por responsável</div>
+        <div class="tw"><table>
+          <thead><tr><th>Responsável (planilhou)</th><th>Passageiros</th><th>Arrecadado</th></tr></thead>
+          <tbody>${planRows}
+            <tr style="border-top:2px solid var(--bdr)"><td style="font-weight:700">TOTAL</td><td style="font-weight:700">${pax.length}</td><td style="font-weight:700;color:var(--gr)">${fmt(rec)}</td></tr>
           </tbody>
-        </table></div>`:'<div style="color:var(--g)">Sem dados</div>'}
-      </div>
-      <div class="card">
-        <div class="card-t">Por Ônibus</div>
-        ${byBus.length?`<div class="tw"><table>
-          <thead><tr><th>Ônibus</th><th>Pass.</th><th>Receita</th><th>Custos</th><th>Lucro</th></tr></thead>
-          <tbody>${byBus.map(({b,pax,rec,custo,lucro})=>`
-            <tr><td><strong>#${b.num}</strong> <span style="font-size:.7rem;color:var(--g)">${escHtml(b.destino.split('–')[0].trim())} ${fmtD(b.data)}</span></td>
-            <td>${pax}</td><td style="color:var(--gr)">${fmt(rec)}</td><td style="color:var(--am)">${fmt(custo)}</td></tr>`).join('')}</tbody></table></div>`:'<div style="color:var(--g)">Sem dados</div>'}
-      </div>
-    </div>`;
+        </table></div>
+      </div>`;
+  }).join('');
+
+  area.innerHTML=`
+    <div class="sgrid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+      <div class="sc"><div class="sc-icon">✅</div><div class="sc-lbl">Receita (filtro)</div><div class="sc-val" style="color:var(--gr)">${fmt(gRec)}</div></div>
+      <div class="sc"><div class="sc-icon">💸</div><div class="sc-lbl">Custos (filtro)</div><div class="sc-val" style="color:var(--am)">${fmt(gCusto)}</div></div>
+      <div class="sc"><div class="sc-icon">📊</div><div class="sc-lbl">Lucro (filtro)</div><div class="sc-val" style="color:${gLucro>=0?'var(--gr)':'var(--r2)'}">${fmt(gLucro)}</div></div>
+    </div>
+    ${cards}`;
+
+  // Bind cost config interactions
+  area.querySelectorAll('[data-pc-add-oc]').forEach(btn=>btn.addEventListener('click',()=>{
+    const bid=btn.dataset.pcAddOc;
+    const nomeEl=area.querySelector(`[data-pc-noc-nome="${bid}"]`);
+    const valEl=area.querySelector(`[data-pc-noc-val="${bid}"]`);
+    const nome=(nomeEl.value||'').trim();
+    const val=parseFloat(valEl.value)||0;
+    if(!nome){toast('Digite a descrição do custo','r');return}
+    const b=db.onibus.find(x=>x.id===bid);
+    if(!b)return;
+    // Preserve any unsaved edits to aluguel/customon before adding
+    const al=area.querySelector(`[data-pc-aluguel="${bid}"]`);
+    const cm=area.querySelector(`[data-pc-customon="${bid}"]`);
+    if(al)b.aluguel=parseFloat(al.value)||0;
+    if(cm)b.custoMon=parseFloat(cm.value)||0;
+    b.outros=[...(b.outros||[]),{nome,val}];
+    pcSaveBus(bid);
+  }));
+  area.querySelectorAll('[data-pc-rm-oc]').forEach(btn=>btn.addEventListener('click',()=>{
+    const [bid,idx]=btn.dataset.pcRmOc.split('|');
+    const b=db.onibus.find(x=>x.id===bid);
+    if(!b)return;
+    b.outros=(b.outros||[]).filter((_,i)=>i!==+idx);
+    pcSaveBus(bid);
+  }));
+  area.querySelectorAll('[data-pc-save]').forEach(btn=>btn.addEventListener('click',()=>{
+    pcCollectAndSave(btn.dataset.pcSave);
+  }));
+}
+
+// Collect cost fields from the DOM for a bus and save
+function pcCollectAndSave(bid){
+  const area=document.getElementById('pc-area');
+  const b=db.onibus.find(x=>x.id===bid);
+  if(!b||!area)return;
+  const al=area.querySelector(`[data-pc-aluguel="${bid}"]`);
+  const cm=area.querySelector(`[data-pc-customon="${bid}"]`);
+  if(al)b.aluguel=parseFloat(al.value)||0;
+  if(cm)b.custoMon=parseFloat(cm.value)||0;
+  const nomeInputs=area.querySelectorAll(`[data-pc-oc-nome^="${bid}|"]`);
+  const valInputs=area.querySelectorAll(`[data-pc-oc-val^="${bid}|"]`);
+  const novos=[];
+  nomeInputs.forEach((inp,i)=>{
+    const nome=(inp.value||'').trim();
+    const val=parseFloat(valInputs[i]?.value)||0;
+    if(nome)novos.push({nome,val});
+  });
+  b.outros=novos;
+  pcSaveBus(bid);
+}
+
+async function pcSaveBus(bid){
+  const b=db.onibus.find(x=>x.id===bid);
+  if(!b)return;
+  showLoader(true);
+  await dbSaveBus(b);
+  showLoader(false);
+  renderPCCards();
+  toast('✓ Custos atualizados','g');
 }
 
 function renderFinCharts(){

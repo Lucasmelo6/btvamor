@@ -210,6 +210,8 @@ input:checked+.tslider:before{transform:translateX(18px)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .sync-indicator{position:fixed;top:10px;right:12px;font-size:.65rem;color:var(--gr);background:var(--gd);border:1px solid rgba(34,197,94,.3);padding:3px 9px;border-radius:20px;z-index:60;opacity:0;transition:opacity .3s;pointer-events:none}
 .sync-indicator.on{opacity:1}
+.eye-btn{background:none;border:none;cursor:pointer;font-size:.85rem;padding:0 0 0 5px;opacity:.65;transition:opacity .2s;vertical-align:middle}
+.eye-btn:hover{opacity:1}
 
 @media(max-width:768px){
   .sidebar{position:fixed;top:50px;bottom:0;left:0;z-index:56;transform:translateX(-100%)}
@@ -240,7 +242,7 @@ input:checked+.tslider:before{transform:translateX(18px)}
     <div class="login-brand">
       <span class="hrt">❤️</span>
       <h1>Bate Volta<br><span>do Amor</span></h1>
-      <p>Sistema de Gestão de Passageiros</p>
+      <p>Sistema de Gestão · São João</p>
     </div>
     <div class="login-err" id="login-err">Usuário ou senha incorretos</div>
     <div class="lf"><label>Usuário</label><input type="text" id="li-user" placeholder="seu.usuario"></div>
@@ -412,6 +414,14 @@ function newId(){return db.nextId++}
 function newGid(){return 'g'+Date.now()+Math.random().toString(36).slice(2,6)}
 
 function fmt(v){return'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}
+// Money privacy: when hidden, show dots instead of the value (bank-app style)
+let moneyVisible=(()=>{try{return localStorage.getItem('btv_money_visible')==='1'}catch(e){return false}})();
+function money(v){return moneyVisible?fmt(v):'R$ ••••••'}
+function toggleMoney(){
+  moneyVisible=!moneyVisible;
+  try{localStorage.setItem('btv_money_visible',moneyVisible?'1':'0')}catch(e){}
+  if(CP==='dashboard')navigate('dashboard');
+}
 function fmtD(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}/${y}`}
 function escHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 // valorDevido = total menos desconto concedido
@@ -647,6 +657,10 @@ function afterRender(page){
   if(page==='passageiros')filterPass();
   if(page==='onibus')renderBusCards();
   if(page==='financeiro'){renderFinCharts();renderPCCards();}
+  if(page==='dashboard'){
+    const mb=document.querySelector('[data-toggle-money]');
+    if(mb)mb.addEventListener('click',toggleMoney);
+  }
 }
 
 function toggleSb(){document.getElementById('sidebar').classList.toggle('on');document.getElementById('ov').classList.toggle('on')}
@@ -710,9 +724,9 @@ function pgDashboard(){
     <div class="ph"><h2>Dashboard</h2><p>Visão geral — São João ${new Date().getFullYear()}</p></div>
     <div class="sgrid">
       <div class="sc"><div class="sc-icon">🎫</div><div class="sc-lbl">Passageiros</div><div class="sc-val">${v.length}</div><div class="sc-sub">${v.filter(x=>!x.isComp).length} titulares · ${v.filter(x=>x.isComp).length} acomp.</div></div>
-      <div class="sc"><div class="sc-icon">💵</div><div class="sc-lbl">Recebido</div><div class="sc-val" style="color:var(--gr)">${fmt(recBruta)}</div></div>
-      <div class="sc"><div class="sc-icon">⚠️</div><div class="sc-lbl">Pendente</div><div class="sc-val" style="color:var(--am)">${fmt(totalPend)}</div></div>
-      <div class="sc"><div class="sc-icon">📊</div><div class="sc-lbl">Lucro Est.</div><div class="sc-val" style="color:${lucro>=0?'var(--gr)':'var(--r2)'}">${fmt(lucro)}</div><div class="sc-sub">receita − custos</div></div>
+      <div class="sc"><div class="sc-icon">💵</div><div class="sc-lbl">Recebido <button class="eye-btn" data-toggle-money title="Mostrar/ocultar valores">${moneyVisible?'👁️':'🙈'}</button></div><div class="sc-val" style="color:var(--gr)">${money(recBruta)}</div></div>
+      <div class="sc"><div class="sc-icon">⚠️</div><div class="sc-lbl">Pendente</div><div class="sc-val" style="color:var(--am)">${money(totalPend)}</div></div>
+      <div class="sc"><div class="sc-icon">📊</div><div class="sc-lbl">Lucro Est.</div><div class="sc-val" style="color:${lucro>=0?'var(--gr)':'var(--r2)'}">${money(lucro)}</div><div class="sc-sub">receita − custos</div></div>
       <div class="sc"><div class="sc-icon">🚌</div><div class="sc-lbl">Ônibus</div><div class="sc-val">${db.onibus.length}</div></div>
       <div class="sc"><div class="sc-icon">🗺️</div><div class="sc-lbl">Cidades</div><div class="sc-val">${db.cidades.length}</div></div>
     </div>
@@ -1134,12 +1148,12 @@ function pgPassageiros(){
       <div class="f"><label class="lbl">Destino</label><select id="fp-d"><option value="">Todos</option>${destOpts}</select></div>
       <div class="f"><label class="lbl">Data</label><select id="fp-dt"><option value="">Todas</option>${dateOpts}</select></div>
       <div class="f"><label class="lbl">Pagamento</label><select id="fp-p"><option value="">Todos</option><option value="pago">Quitado</option><option value="parcial">Parcial</option><option value="cortesia">Cortesia</option></select></div>
-      <div class="f"><label class="lbl">Planilhado por</label><select id="fp-c"><option value="">Todos</option>${colabOpts}</select></div>
+      <div class="f"><label class="lbl">Cadastrado por</label><select id="fp-c"><option value="">Todos</option>${colabOpts}</select></div>
       <div style="margin-top:auto"><button class="btn br bsm" data-action="open-venda">+ Nova</button></div>
     </div>
     <div class="card" style="padding:0">
       <div class="tw"><table>
-        <thead><tr><th>#</th><th>Nome</th><th>WhatsApp</th><th>Embarque</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Total</th><th>Pago</th><th>Status</th><th>Planilhado por</th><th>Ações</th></tr></thead>
+        <thead><tr><th>#</th><th>Nome</th><th>WhatsApp</th><th>Embarque</th><th>Destino</th><th>Data</th><th>Ônibus</th><th>Total</th><th>Pago</th><th>Status</th><th>Cadastrado por</th><th>Ações</th></tr></thead>
         <tbody id="tbody-pass"></tbody>
       </table></div>
     </div>`;
@@ -1370,7 +1384,7 @@ function buildModalBus(){
         <label class="toggle"><input type="checkbox" id="mb-vis"><span class="tslider"></span></label>
       </div>
       <div style="font-size:.74rem;color:var(--g);background:var(--k3);border-radius:2px;padding:10px 12px;margin-top:8px">
-        💡 Selecione um monitor para que o ônibus fique disponivel para consulta</strong>.
+        💡 Os custos do ônibus (aluguel, monitor, outros) agora ficam na aba <strong>Prestação de Contas</strong>.
       </div>
       <div class="btn-row">
         <button class="btn br" id="btn-save-bus">✅ Salvar</button>
@@ -1742,12 +1756,6 @@ function renderPCCards(){
     const planRows=Object.entries(byPlan).sort((a,b)=>b[1].rec-a[1].rec).map(([nome,s])=>`
       <tr><td><strong>${escHtml(nome)}</strong></td><td>${s.count}${s.cortesias?` <span style="font-size:.62rem;color:var(--bl)">(${s.cortesias} cortesia)</span>`:''}</td><td style="color:var(--gr);font-weight:700">${fmt(s.rec)}</td></tr>`).join('')
       ||'<tr><td colspan="3" style="color:var(--g);text-align:center;padding:14px">Nenhum passageiro</td></tr>';
-    const outrosRows=outros.map((o,i)=>`
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-        <input type="text" value="${escHtml(o.nome)}" style="flex:2" data-pc-oc-nome="${b.id}|${i}" placeholder="Descrição">
-        <input type="number" value="${o.val}" style="flex:1" data-pc-oc-val="${b.id}|${i}" placeholder="R$">
-        <button class="btn b-dng bxs" data-pc-rm-oc="${b.id}|${i}">✕</button>
-      </div>`).join('');
     return`
       <div class="card" style="margin-bottom:14px${b.arquivado?';opacity:.8':''}">
         <div class="card-t" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1756,29 +1764,13 @@ function renderPCCards(){
           <span class="chip cg" style="margin-left:auto">${pax.length} passageiros</span>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;font-size:.78rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;font-size:.78rem">
           <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Receita (arrecadado)</div><div style="font-weight:700;color:var(--gr);font-size:1rem">${fmt(rec)}</div></div>
           <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Custos</div><div style="font-weight:700;color:var(--am);font-size:1rem">${fmt(totalCusto)}</div></div>
           <div style="background:var(--k3);border-radius:2px;padding:12px"><div style="color:var(--g);margin-bottom:3px">Lucro</div><div style="font-weight:700;color:${lucroB>=0?'var(--gr)':'var(--r2)'};font-size:1rem">${fmt(lucroB)}</div></div>
         </div>
 
-        <div style="background:var(--k3);border-radius:3px;padding:14px;margin-bottom:16px">
-          <div class="lbl" style="margin-bottom:10px">💰 Configurar custos deste ônibus</div>
-          <div class="fg2">
-            <div class="f"><label class="lbl">Aluguel do Ônibus (R$)</label><input type="number" value="${b.aluguel||''}" data-pc-aluguel="${b.id}" placeholder="0.00" step="0.01"></div>
-            <div class="f"><label class="lbl">Custo do Monitor (R$)</label><input type="number" value="${b.custoMon||''}" data-pc-customon="${b.id}" placeholder="0.00" step="0.01"></div>
-          </div>
-          <div style="margin-top:10px">
-            <div class="lbl" style="margin-bottom:8px">Outros Custos</div>
-            <div data-pc-outros="${b.id}">${outrosRows||'<div style="font-size:.74rem;color:var(--g);margin-bottom:6px">Nenhum outro custo</div>'}</div>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <input type="text" data-pc-noc-nome="${b.id}" placeholder="Descrição (ex: pedágio)" style="flex:2">
-              <input type="number" data-pc-noc-val="${b.id}" placeholder="R$" style="flex:1">
-              <button class="btn bg bsm" data-pc-add-oc="${b.id}">+</button>
-            </div>
-          </div>
-          <div style="margin-top:12px"><button class="btn br bsm" data-pc-save="${b.id}">✅ Salvar custos</button></div>
-        </div>
+        <div style="margin-bottom:16px"><button class="btn b-bl bsm" data-pc-open-cfg="${b.id}">⚙️ Configurar custos${totalCusto>0?` (${fmt(totalCusto)})`:''}</button></div>
 
         <div class="lbl" style="margin-bottom:8px">👥 Arrecadação por responsável</div>
         <div class="tw"><table>
@@ -1798,63 +1790,101 @@ function renderPCCards(){
     </div>
     ${cards}`;
 
-  // Bind cost config interactions
-  area.querySelectorAll('[data-pc-add-oc]').forEach(btn=>btn.addEventListener('click',()=>{
-    const bid=btn.dataset.pcAddOc;
-    const nomeEl=area.querySelector(`[data-pc-noc-nome="${bid}"]`);
-    const valEl=area.querySelector(`[data-pc-noc-val="${bid}"]`);
-    const nome=(nomeEl.value||'').trim();
-    const val=parseFloat(valEl.value)||0;
-    if(!nome){toast('Digite a descrição do custo','r');return}
-    const b=db.onibus.find(x=>x.id===bid);
-    if(!b)return;
-    // Preserve any unsaved edits to aluguel/customon before adding
-    const al=area.querySelector(`[data-pc-aluguel="${bid}"]`);
-    const cm=area.querySelector(`[data-pc-customon="${bid}"]`);
-    if(al)b.aluguel=parseFloat(al.value)||0;
-    if(cm)b.custoMon=parseFloat(cm.value)||0;
-    b.outros=[...(b.outros||[]),{nome,val}];
-    pcSaveBus(bid);
-  }));
-  area.querySelectorAll('[data-pc-rm-oc]').forEach(btn=>btn.addEventListener('click',()=>{
-    const [bid,idx]=btn.dataset.pcRmOc.split('|');
-    const b=db.onibus.find(x=>x.id===bid);
-    if(!b)return;
-    b.outros=(b.outros||[]).filter((_,i)=>i!==+idx);
-    pcSaveBus(bid);
-  }));
-  area.querySelectorAll('[data-pc-save]').forEach(btn=>btn.addEventListener('click',()=>{
-    pcCollectAndSave(btn.dataset.pcSave);
-  }));
+  // Open cost config modal
+  area.querySelectorAll('[data-pc-open-cfg]').forEach(btn=>btn.addEventListener('click',()=>openCustosModal(btn.dataset.pcOpenCfg)));
 }
 
-// Collect cost fields from the DOM for a bus and save
-function pcCollectAndSave(bid){
-  const area=document.getElementById('pc-area');
-  const b=db.onibus.find(x=>x.id===bid);
-  if(!b||!area)return;
-  const al=area.querySelector(`[data-pc-aluguel="${bid}"]`);
-  const cm=area.querySelector(`[data-pc-customon="${bid}"]`);
-  if(al)b.aluguel=parseFloat(al.value)||0;
-  if(cm)b.custoMon=parseFloat(cm.value)||0;
-  const nomeInputs=area.querySelectorAll(`[data-pc-oc-nome^="${bid}|"]`);
-  const valInputs=area.querySelectorAll(`[data-pc-oc-val^="${bid}|"]`);
-  const novos=[];
-  nomeInputs.forEach((inp,i)=>{
-    const nome=(inp.value||'').trim();
-    const val=parseFloat(valInputs[i]?.value)||0;
-    if(nome)novos.push({nome,val});
-  });
-  b.outros=novos;
-  pcSaveBus(bid);
+// ── Cost config modal ──
+function buildModalCustos(b){
+  const outros=b.outros||[];
+  const outrosRows=outros.map((o,i)=>`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input type="text" value="${escHtml(o.nome)}" style="flex:2" data-mc-oc-nome="${i}" placeholder="Descrição">
+      <input type="number" value="${o.val}" style="flex:1" data-mc-oc-val="${i}" placeholder="R$">
+      <button class="btn b-dng bxs" data-mc-rm-oc="${i}">✕</button>
+    </div>`).join('');
+  return`
+    <div class="modal">
+      <div class="modal-t"><span>⚙️ Custos — Ônibus ${b.num}</span><button class="modal-close" data-close="modal-custos">✕</button></div>
+      <div style="font-size:.78rem;color:var(--g);margin-bottom:14px">${escHtml(b.destino)} · ${fmtD(b.data)}</div>
+      <div class="fg2">
+        <div class="f"><label class="lbl">Aluguel do Ônibus (R$)</label><input type="number" id="mc-aluguel" value="${b.aluguel||''}" placeholder="0.00" step="0.01"></div>
+        <div class="f"><label class="lbl">Custo do Monitor (R$)</label><input type="number" id="mc-customon" value="${b.custoMon||''}" placeholder="0.00" step="0.01"></div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="lbl" style="margin-bottom:8px">Outros Custos</div>
+        <div id="mc-outros">${outrosRows||'<div style="font-size:.74rem;color:var(--g);margin-bottom:6px">Nenhum outro custo</div>'}</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input type="text" id="mc-noc-nome" placeholder="Descrição (ex: pedágio)" style="flex:2">
+          <input type="number" id="mc-noc-val" placeholder="R$" style="flex:1">
+          <button class="btn bg bsm" id="mc-add-oc">+</button>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn br" id="mc-save">✅ Salvar custos</button>
+        <button class="btn bg" data-close="modal-custos">Cancelar</button>
+      </div>
+    </div>`;
 }
 
-async function pcSaveBus(bid){
+let custosBusId=null;
+function openCustosModal(bid){
   const b=db.onibus.find(x=>x.id===bid);
   if(!b)return;
+  custosBusId=bid;
+  // Work on a temp copy of outros so edits only commit on save
+  custosOutros=JSON.parse(JSON.stringify(b.outros||[]));
+  let modal=document.getElementById('modal-custos');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='modal-custos';
+    modal.className='modal-bg';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML=buildModalCustos(b);
+  bindCustosModal();
+  openM('modal-custos');
+}
+
+let custosOutros=[];
+function renderCustosOutros(){
+  const el=document.getElementById('mc-outros');
+  if(!el)return;
+  el.innerHTML=custosOutros.length?custosOutros.map((o,i)=>`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input type="text" value="${escHtml(o.nome)}" style="flex:2" data-mc-oc-nome="${i}" placeholder="Descrição">
+      <input type="number" value="${o.val}" style="flex:1" data-mc-oc-val="${i}" placeholder="R$">
+      <button class="btn b-dng bxs" data-mc-rm-oc="${i}">✕</button>
+    </div>`).join(''):'<div style="font-size:.74rem;color:var(--g);margin-bottom:6px">Nenhum outro custo</div>';
+  el.querySelectorAll('[data-mc-oc-nome]').forEach(inp=>inp.addEventListener('change',e=>{custosOutros[+e.target.dataset.mcOcNome].nome=e.target.value}));
+  el.querySelectorAll('[data-mc-oc-val]').forEach(inp=>inp.addEventListener('change',e=>{custosOutros[+e.target.dataset.mcOcVal].val=parseFloat(e.target.value)||0}));
+  el.querySelectorAll('[data-mc-rm-oc]').forEach(b=>b.addEventListener('click',()=>{custosOutros.splice(+b.dataset.mcRmOc,1);renderCustosOutros()}));
+}
+function bindCustosModal(){
+  const modal=document.getElementById('modal-custos');
+  document.getElementById('mc-add-oc').addEventListener('click',()=>{
+    const nome=(document.getElementById('mc-noc-nome').value||'').trim();
+    const val=parseFloat(document.getElementById('mc-noc-val').value)||0;
+    if(!nome){toast('Digite a descrição do custo','r');return}
+    custosOutros.push({nome,val});
+    document.getElementById('mc-noc-nome').value='';
+    document.getElementById('mc-noc-val').value='';
+    renderCustosOutros();
+  });
+  document.getElementById('mc-save').addEventListener('click',saveCustosModal);
+  modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
+  renderCustosOutros();
+}
+async function saveCustosModal(){
+  const b=db.onibus.find(x=>x.id===custosBusId);
+  if(!b)return;
+  b.aluguel=parseFloat(document.getElementById('mc-aluguel').value)||0;
+  b.custoMon=parseFloat(document.getElementById('mc-customon').value)||0;
+  b.outros=custosOutros.filter(o=>(o.nome||'').trim());
   showLoader(true);
   await dbSaveBus(b);
   showLoader(false);
+  closeM('modal-custos');
   renderPCCards();
   toast('✓ Custos atualizados','g');
 }

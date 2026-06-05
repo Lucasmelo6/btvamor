@@ -1448,11 +1448,18 @@ function renderTransferModal(){
 
   const unitRows=units.length?units.map(u=>{
     const checked=transferSel.has(u.uid);
+    let detail;
+    if(u.tipo==='grupo'){
+      // Each member with their own embarque in parentheses (companions can differ from titular)
+      detail=u.members.map(m=>`${escHtml(m.nome)} <span style="color:var(--g2)">(📍 ${escHtml(m.embarque)})</span>`).join(' · ');
+    } else {
+      detail=`📍 ${escHtml(u.members[0].embarque)}`;
+    }
     return`<label class="tr-unit${checked?' on':''}">
       <input type="checkbox" data-tr-unit="${u.uid}"${checked?' checked':''}>
       <div style="flex:1">
         <div style="font-weight:600">${escHtml(u.label)} ${u.tipo==='grupo'?`<span class="chip cw" style="font-size:.56rem">grupo ${u.count}</span>`:''}</div>
-        <div style="font-size:.7rem;color:var(--g)">${u.tipo==='grupo'?u.members.map(m=>escHtml(m.nome)).join(', '):escHtml(u.members[0].embarque)}</div>
+        <div style="font-size:.7rem;color:var(--g)">${detail}</div>
       </div>
     </label>`;
   }).join(''):'<div style="color:var(--g);padding:16px;text-align:center">Este ônibus não tem passageiros</div>';

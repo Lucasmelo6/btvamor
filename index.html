@@ -295,8 +295,8 @@ let db = { users:[], cidades:[], onibus:[], vendas:[], nextId:100 };
 // Map snake_case (DB) ↔ camelCase (app)
 function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
 function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
-function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,busLock:v.bus_lock,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
-function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,bus_lock:v.busLock||false,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
+function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,busLock:v.bus_lock,zapAdded:v.zap_added,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
+function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,bus_lock:v.busLock||false,zap_added:v.zapAdded||false,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
 
 // Load all data from Supabase
 async function loadDB(){
@@ -1333,6 +1333,7 @@ function renderBusCards(){
     const ocp=Math.round(pax.length/b.cap*100);
     const mon=db.users.find(u=>u.id===b.monitorId);
     const recFpl=fpl?paxView.reduce((s,v)=>s+v.valorPago,0):0;
+    const zapDone=pax.filter(v=>v.zapAdded).length;
     return`
       <div class="card" style="margin-bottom:14px${b.arquivado?';opacity:.7':''}">
         <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:12px">
@@ -1343,6 +1344,7 @@ function renderBusCards(){
             <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
               <span class="chip ${ocp>=90?'cr':ocp>=60?'ca':'cg'}">${pax.length}/${b.cap} assentos</span>
               ${mon?`<span class="chip cb">👤 ${escHtml(mon.nome)}</span>`:'<span class="chip cw">Sem monitor</span>'}
+              ${pax.length?`<span class="chip ${zapDone===pax.length?'cg':'ca'}">📲 ${zapDone}/${pax.length} no grupo</span>`:''}
               ${!b.visivel?'<span class="chip cw">👁 Oculto</span>':''}
               ${b.arquivado?'<span class="chip cw">📦 Arquivado</span>':''}
               ${fpl?`<span class="chip ca">📋 ${escHtml(fpl)}: ${paxView.length} pass · ${fmt(recFpl)}</span>`:''}
@@ -1360,19 +1362,21 @@ function renderBusCards(){
           <div class="prog-bar"><div class="prog-fill" style="width:${ocp}%;background:${ocp>=90?'var(--r)':ocp>=60?'var(--am)':'var(--gr)'}"></div></div>
         </div>
         ${paxView.length?`<div class="tw"><table>
-          <thead><tr><th>#</th><th>Nome</th><th>Embarque</th><th>WhatsApp</th><th>Status Pag.</th><th>Grupo</th><th>Planilhado por</th></tr></thead>
+          <thead><tr><th>#</th><th>Nome</th><th>Embarque</th><th>WhatsApp</th><th>Status Pag.</th><th>Grupo</th><th>Planilhado por</th><th>Grupo Zap</th></tr></thead>
           <tbody>${paxView.map((p,i)=>`
-            <tr><td style="font-family:'Bebas Neue',sans-serif;color:var(--r);font-size:.95rem">${i+1}</td>
+            <tr${p.zapAdded?' style="background:var(--gd)"':''}><td style="font-family:'Bebas Neue',sans-serif;color:var(--r);font-size:.95rem">${i+1}</td>
             <td><strong>${escHtml(p.nome)}</strong>${p.cortesia?'<span class="chip cb" style="margin-left:5px;font-size:.56rem">🎁</span>':''}</td><td style="color:var(--g)">${escHtml(p.embarque)}</td><td>${escHtml(p.whats)}</td>
             <td>${p.cortesia?'<span class="chip cb">🎁 Cortesia</span>':isPaid(p)?'<span class="chip cg">✓</span>':'<span class="chip ca">'+pct(p)+'%</span>'}</td>
             <td>${p.isComp?'<span class="chip cb">Acomp.</span>':p.groupId?'<span class="chip cw">Titular</span>':''}</td>
-            <td style="font-size:.72rem;color:var(--g)">${p.addMonitor?'<span class="chip ca" style="font-size:.54rem">🚌</span> ':''}${escHtml(p.criadoPor||'—')}</td></tr>`).join('')}
+            <td style="font-size:.72rem;color:var(--g)">${p.addMonitor?'<span class="chip ca" style="font-size:.54rem">🚌</span> ':''}${escHtml(p.criadoPor||'—')}</td>
+            <td><button class="btn ${p.zapAdded?'b-grn':'bg'} bxs" data-zap-toggle="${p.id}" title="${p.zapAdded?'Enviado ao grupo':'Marcar como enviado'}">${p.zapAdded?'✅ No grupo':'📲 Enviar'}</button></td></tr>`).join('')}
           </tbody>
         </table></div>`:'<div style="color:var(--g);font-size:.82rem;padding:10px 0">Nenhum passageiro neste ônibus</div>'}
       </div>`;
   }).join('');
   area.querySelectorAll('[data-config-bus]').forEach(b=>b.addEventListener('click',()=>openBusConfig(b.dataset.configBus)));
   area.querySelectorAll('[data-print-bus]').forEach(b=>b.addEventListener('click',()=>printBus(b.dataset.printBus)));
+  area.querySelectorAll('[data-zap-toggle]').forEach(b=>b.addEventListener('click',()=>toggleZap(parseInt(b.dataset.zapToggle))));
   area.querySelectorAll('[data-arch-bus]').forEach(b=>b.addEventListener('click',()=>toggleArchiveBus(b.dataset.archBus)));
   area.querySelectorAll('[data-transfer-bus]').forEach(b=>b.addEventListener('click',()=>openTransferModal(b.dataset.transferBus)));
 }
@@ -1386,6 +1390,16 @@ async function toggleArchiveBus(bid){
   showLoader(false);
   navigate(CP);
   toast(b.arquivado?'📦 Ônibus arquivado':'📤 Ônibus reativado','g');
+}
+
+async function toggleZap(id){
+  const v=db.vendas.find(x=>x.id===id);
+  if(!v)return;
+  v.zapAdded=!v.zapAdded;
+  await dbSaveVenda(v);
+  // Re-render just the bus list (preserve filters)
+  renderBusCards();
+  toast(v.zapAdded?`✅ ${v.nome} marcado como no grupo`:`${v.nome} desmarcado`,v.zapAdded?'g':'');
 }
 
 // ══════════════════════════════════════════════════

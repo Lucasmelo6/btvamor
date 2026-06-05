@@ -212,6 +212,11 @@ input:checked+.tslider:before{transform:translateX(18px)}
 .sync-indicator.on{opacity:1}
 .eye-btn{background:none;border:none;cursor:pointer;font-size:.85rem;padding:0 0 0 5px;opacity:.65;transition:opacity .2s;vertical-align:middle}
 .eye-btn:hover{opacity:1}
+.tr-list{max-height:230px;overflow-y:auto;border:1px solid var(--bdr);border-radius:3px;padding:6px}
+.tr-unit{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:3px;cursor:pointer;transition:background .15s}
+.tr-unit:hover{background:var(--k3)}
+.tr-unit.on{background:var(--rd)}
+.tr-unit input{width:17px;height:17px;accent-color:var(--r);cursor:pointer}
 
 @media(max-width:768px){
   .sidebar{position:fixed;top:50px;bottom:0;left:0;z-index:56;transform:translateX(-100%)}
@@ -290,8 +295,8 @@ let db = { users:[], cidades:[], onibus:[], vendas:[], nextId:100 };
 // Map snake_case (DB) ↔ camelCase (app)
 function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
 function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
-function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
-function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
+function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,busLock:v.bus_lock,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
+function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,bus_lock:v.busLock||false,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
 
 // Load all data from Supabase
 async function loadDB(){
@@ -436,23 +441,35 @@ function cidade(nome){return db.cidades.find(c=>c.nome===nome)}
 // ══════════════════════════════════════════════════
 function allocateRoute(destino,data){
   const pax=db.vendas.filter(v=>v.destino===destino&&v.data===data);
-  // Clear existing assignments for this route
-  pax.forEach(v=>v.busId=null);
+  if(!pax.length){
+    // Renumber any remaining buses and return
+    db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.criado.localeCompare(b.criado)).forEach((b,i)=>b.num=i+1);
+    return;
+  }
+
+  // Separate locked (manually placed) from free passengers
+  const locked=pax.filter(v=>v.busLock&&v.busId);
+  const free=pax.filter(v=>!(v.busLock&&v.busId));
+  // Clear assignments only for free passengers
+  free.forEach(v=>v.busId=null);
 
   // Get or create at least one bus
   let buses=db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.num-b.num);
-  if(!buses.length&&pax.length){
+  if(!buses.length){
     const b={id:'b'+newId(),destino,data,num:1,cap:48,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
     db.onibus.push(b);buses=[b];
   }
-  if(!pax.length)return;
-
   const cap=buses[0]?buses[0].cap:48;
 
-  // Build groups (titular + companions) and singles
+  // Seat counters per bus, pre-filled by locked passengers
+  const seatsByBus={};
+  buses.forEach(b=>seatsByBus[b.id]=0);
+  locked.forEach(v=>{if(seatsByBus[v.busId]!==undefined)seatsByBus[v.busId]++});
+
+  // Build groups and singles from FREE passengers only
   const groupMap={};
   const singles=[];
-  pax.forEach(v=>{
+  free.forEach(v=>{
     if(v.groupId){
       if(!groupMap[v.groupId])groupMap[v.groupId]=[];
       groupMap[v.groupId].push(v);
@@ -462,13 +479,13 @@ function allocateRoute(destino,data){
   });
   const groups=Object.values(groupMap);
 
-  // Total seats needed
+  // Ensure enough total capacity for free + locked
   const total=pax.length;
   const needed=Math.max(1,Math.ceil(total/cap));
   while(buses.length<needed){
     const n=buses.length+1;
     const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-    db.onibus.push(b);buses.push(b);
+    db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
   }
 
   // Group singles by embarque (largest groups first)
@@ -476,39 +493,40 @@ function allocateRoute(destino,data){
   singles.forEach(v=>{if(!byEmb[v.embarque])byEmb[v.embarque]=[];byEmb[v.embarque].push(v)});
   const embGroups=Object.values(byEmb).sort((a,b)=>b.length-a.length);
 
-  // Allocate — fill buses in order: groups first, then singles by embarque
-  let busIdx=0,seatCount=0;
-
-  function ensureBus(){
-    if(seatCount>=buses[busIdx].cap){
-      busIdx++;
-      if(!buses[busIdx]){
-        const n=busIdx+1;
-        const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-        db.onibus.push(b);buses.push(b);
-      }
-      seatCount=0;
+  function placeBus(){
+    // Return index of first bus with a free seat, creating one if needed
+    for(let i=0;i<buses.length;i++){
+      if(seatsByBus[buses[i].id]<buses[i].cap)return i;
     }
+    const n=buses.length+1;
+    const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
+    db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
+    return buses.length-1;
   }
 
+  // Place groups (keep together)
   groups.forEach(grp=>{
-    // If group doesn't fit in current bus, move to next
-    if(seatCount+grp.length>buses[busIdx].cap){
-      busIdx++;
-      if(!buses[busIdx]){
-        const n=busIdx+1;
-        const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-        db.onibus.push(b);buses.push(b);
+    let placed=false;
+    for(let i=0;i<buses.length;i++){
+      if(seatsByBus[buses[i].id]+grp.length<=buses[i].cap){
+        grp.forEach(v=>{v.busId=buses[i].id;seatsByBus[buses[i].id]++});
+        placed=true;break;
       }
-      seatCount=0;
     }
-    grp.forEach(v=>{v.busId=buses[busIdx].id;seatCount++});
+    if(!placed){
+      // create new bus for the group
+      const n=buses.length+1;
+      const b={id:'b'+newId(),destino,data,num:n,cap:Math.max(cap,grp.length),monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
+      db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
+      grp.forEach(v=>{v.busId=b.id;seatsByBus[b.id]++});
+    }
   });
 
+  // Place singles by embarque
   embGroups.forEach(eg=>{
     eg.forEach(v=>{
-      ensureBus();
-      v.busId=buses[busIdx].id;seatCount++;
+      const i=placeBus();
+      v.busId=buses[i].id;seatsByBus[buses[i].id]++;
     });
   });
 
@@ -517,7 +535,6 @@ function allocateRoute(destino,data){
   db.onibus=db.onibus.filter(b=>{
     if(b.destino!==destino||b.data!==data)return true;
     if(usedIds.has(b.id))return true;
-    // Keep if it has any configuration
     if(b.monitorId||b.aluguel||b.custoMon||(b.outros&&b.outros.length))return true;
     return false;
   });
@@ -1333,6 +1350,7 @@ function renderBusCards(){
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn b-bl bsm" data-config-bus="${b.id}">⚙️ Configurar</button>
+            <button class="btn b-am bsm" data-transfer-bus="${b.id}">🔄 Transferir</button>
             <button class="btn ${b.arquivado?'b-grn':'bg'} bsm" data-arch-bus="${b.id}">${b.arquivado?'📤 Desarquivar':'📦 Arquivar'}</button>
             <button class="btn bg bsm no-print" data-print-bus="${b.id}">🖨️</button>
           </div>
@@ -1356,6 +1374,7 @@ function renderBusCards(){
   area.querySelectorAll('[data-config-bus]').forEach(b=>b.addEventListener('click',()=>openBusConfig(b.dataset.configBus)));
   area.querySelectorAll('[data-print-bus]').forEach(b=>b.addEventListener('click',()=>printBus(b.dataset.printBus)));
   area.querySelectorAll('[data-arch-bus]').forEach(b=>b.addEventListener('click',()=>toggleArchiveBus(b.dataset.archBus)));
+  area.querySelectorAll('[data-transfer-bus]').forEach(b=>b.addEventListener('click',()=>openTransferModal(b.dataset.transferBus)));
 }
 
 async function toggleArchiveBus(bid){
@@ -1367,6 +1386,199 @@ async function toggleArchiveBus(bid){
   showLoader(false);
   navigate(CP);
   toast(b.arquivado?'📦 Ônibus arquivado':'📤 Ônibus reativado','g');
+}
+
+// ══════════════════════════════════════════════════
+// TRANSFERÊNCIA MANUAL DE PASSAGEIROS
+// ══════════════════════════════════════════════════
+let transferRoute=null; // {destino, data, originId}
+let transferSel=new Set(); // selected "unit" ids: groupId or "single:vendaId"
+
+// Build the transferable "units" of a bus: groups stay together, singles are individual
+function busUnits(busId){
+  const pax=db.vendas.filter(v=>v.busId===busId);
+  const groupMap={};
+  const singles=[];
+  pax.forEach(v=>{
+    if(v.groupId){
+      if(!groupMap[v.groupId])groupMap[v.groupId]=[];
+      groupMap[v.groupId].push(v);
+    } else singles.push(v);
+  });
+  const units=[];
+  Object.entries(groupMap).forEach(([gid,members])=>{
+    // titular first
+    members.sort((a,b)=>(a.isComp?1:0)-(b.isComp?1:0));
+    const titular=members.find(m=>!m.isComp)||members[0];
+    units.push({uid:'g:'+gid, tipo:'grupo', label:titular.nome, count:members.length, members});
+  });
+  singles.forEach(v=>{
+    units.push({uid:'s:'+v.id, tipo:'single', label:v.nome, count:1, members:[v]});
+  });
+  return units;
+}
+
+function openTransferModal(busId){
+  const origin=db.onibus.find(b=>b.id===busId);
+  if(!origin){toast('Ônibus não encontrado','r');return}
+  transferRoute={destino:origin.destino, data:origin.data, originId:busId};
+  transferSel=new Set();
+  let modal=document.getElementById('modal-transfer');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='modal-transfer';
+    modal.className='modal-bg';
+    document.body.appendChild(modal);
+  }
+  renderTransferModal();
+  openM('modal-transfer');
+}
+
+function renderTransferModal(){
+  const modal=document.getElementById('modal-transfer');
+  if(!modal||!transferRoute)return;
+  const {destino,data,originId}=transferRoute;
+  const origin=db.onibus.find(b=>b.id===originId);
+  const units=busUnits(originId);
+  const selCount=[...transferSel].reduce((s,uid)=>{
+    const u=units.find(x=>x.uid===uid);return s+(u?u.count:0);
+  },0);
+  // Other buses on same route (potential destinations)
+  const others=db.onibus.filter(b=>b.destino===destino&&b.data===data&&b.id!==originId&&!b.arquivado).sort((a,b)=>a.num-b.num);
+
+  const unitRows=units.length?units.map(u=>{
+    const checked=transferSel.has(u.uid);
+    return`<label class="tr-unit${checked?' on':''}">
+      <input type="checkbox" data-tr-unit="${u.uid}"${checked?' checked':''}>
+      <div style="flex:1">
+        <div style="font-weight:600">${escHtml(u.label)} ${u.tipo==='grupo'?`<span class="chip cw" style="font-size:.56rem">grupo ${u.count}</span>`:''}</div>
+        <div style="font-size:.7rem;color:var(--g)">${u.tipo==='grupo'?u.members.map(m=>escHtml(m.nome)).join(', '):escHtml(u.members[0].embarque)}</div>
+      </div>
+    </label>`;
+  }).join(''):'<div style="color:var(--g);padding:16px;text-align:center">Este ônibus não tem passageiros</div>';
+
+  const destOpts=others.map(b=>{
+    const occ=db.vendas.filter(v=>v.busId===b.id).length;
+    const free=b.cap-occ;
+    return`<option value="${b.id}">Ônibus ${b.num} — ${occ}/${b.cap} (${free} ${free===1?'vaga':'vagas'})</option>`;
+  }).join('');
+
+  modal.innerHTML=`
+    <div class="modal modal-lg">
+      <div class="modal-t"><span>🔄 Transferir passageiros — Ônibus ${origin.num}</span><button class="modal-close" data-close="modal-transfer">✕</button></div>
+      <div style="font-size:.78rem;color:var(--g);margin-bottom:14px">${escHtml(destino)} · ${fmtD(data)} — grupos sempre se movem juntos</div>
+
+      <div class="lbl" style="margin-bottom:8px">1. Selecione quem mover <span style="color:var(--r2)">${selCount?`(${selCount} passageiro${selCount>1?'s':''})`:''}</span></div>
+      <div class="tr-list">${unitRows}</div>
+
+      <div class="lbl" style="margin:16px 0 8px">2. Para qual ônibus?</div>
+      ${others.length?`
+        <select id="tr-dest" style="margin-bottom:6px">${destOpts}</select>
+        <div style="font-size:.72rem;color:var(--g)">Ou crie um novo ônibus para esta rota:</div>
+        <button class="btn bg bsm" id="tr-new-bus" style="margin-top:6px">➕ Novo ônibus nesta rota</button>
+      `:`
+        <div style="background:var(--ad);border:1px solid rgba(245,158,11,.25);border-radius:3px;padding:12px;font-size:.8rem;color:var(--w2);margin-bottom:8px">
+          Não há outro ônibus nesta rota ainda. Crie um para mover os passageiros:
+        </div>
+        <button class="btn br bsm" id="tr-new-bus">➕ Criar novo ônibus nesta rota</button>
+      `}
+
+      <div id="tr-warn" style="margin-top:14px"></div>
+
+      <div class="btn-row">
+        <button class="btn br" id="tr-confirm"${(!others.length||!selCount)?' disabled':''}>✅ Transferir</button>
+        <button class="btn bg" data-close="modal-transfer">Fechar</button>
+      </div>
+    </div>`;
+
+  // Bind
+  modal.querySelectorAll('[data-tr-unit]').forEach(cb=>cb.addEventListener('change',()=>{
+    const uid=cb.dataset.trUnit;
+    if(cb.checked)transferSel.add(uid);else transferSel.delete(uid);
+    renderTransferModal();
+  }));
+  const newBtn=document.getElementById('tr-new-bus');
+  if(newBtn)newBtn.addEventListener('click',createBusForTransfer);
+  const destSelEl=document.getElementById('tr-dest');
+  if(destSelEl)destSelEl.addEventListener('change',updateTransferWarning);
+  const confirmBtn=document.getElementById('tr-confirm');
+  if(confirmBtn)confirmBtn.addEventListener('click',confirmTransfer);
+  modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
+
+  // Live capacity check
+  updateTransferWarning();
+}
+
+function updateTransferWarning(){
+  const warn=document.getElementById('tr-warn');
+  const destSel=document.getElementById('tr-dest');
+  if(!warn||!destSel||!transferRoute)return;
+  const units=busUnits(transferRoute.originId);
+  const moving=[...transferSel].reduce((s,uid)=>{const u=units.find(x=>x.uid===uid);return s+(u?u.count:0)},0);
+  const destBus=db.onibus.find(b=>b.id===destSel.value);
+  if(!destBus||!moving){warn.innerHTML='';return}
+  const occ=db.vendas.filter(v=>v.busId===destBus.id).length;
+  const after=occ+moving;
+  if(after>destBus.cap){
+    const over=after-destBus.cap;
+    warn.innerHTML=`<div style="background:var(--rd);border:1px solid var(--bdr-r);border-radius:3px;padding:12px;font-size:.8rem;color:var(--r2)">
+      ⚠️ <strong>Excede a capacidade!</strong> O Ônibus ${destBus.num} ficaria com ${after}/${destBus.cap} (${over} a mais).<br>
+      <span style="color:var(--w3)">Você pode confirmar mesmo assim (vai exceder), criar um novo ônibus, ou selecionar menos passageiros.</span>
+    </div>`;
+  } else {
+    warn.innerHTML=`<div style="background:var(--gd);border:1px solid rgba(34,197,94,.3);border-radius:3px;padding:12px;font-size:.8rem;color:var(--gr)">
+      ✓ Cabe! O Ônibus ${destBus.num} ficaria com ${after}/${destBus.cap}.
+    </div>`;
+  }
+}
+
+async function createBusForTransfer(){
+  if(!transferRoute)return;
+  const {destino,data}=transferRoute;
+  const cap=(db.onibus.find(b=>b.destino===destino&&b.data===data)||{}).cap||48;
+  const b={id:'b'+newId(),destino,data,num:99,cap,monitorId:null,visivel:true,arquivado:false,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
+  db.onibus.push(b);
+  // Renumber route
+  db.onibus.filter(x=>x.destino===destino&&x.data===data).sort((a,b)=>a.criado.localeCompare(b.criado)).forEach((x,i)=>x.num=i+1);
+  showLoader(true);
+  await dbSaveBus(b);
+  await saveNextId();
+  showLoader(false);
+  toast('✓ Novo ônibus criado','g');
+  renderTransferModal();
+}
+
+async function confirmTransfer(){
+  const destSel=document.getElementById('tr-dest');
+  if(!destSel||!destSel.value){toast('Selecione o ônibus de destino','r');return}
+  if(!transferSel.size){toast('Selecione ao menos um passageiro','r');return}
+  const destBus=db.onibus.find(b=>b.id===destSel.value);
+  if(!destBus)return;
+  const units=busUnits(transferRoute.originId);
+  const movingUnits=units.filter(u=>transferSel.has(u.uid));
+  const moving=movingUnits.reduce((s,u)=>s+u.count,0);
+  const occ=db.vendas.filter(v=>v.busId===destBus.id).length;
+  const after=occ+moving;
+
+  const doMove=async()=>{
+    // Move all members; mark as locked so allocateRoute won't undo it
+    movingUnits.forEach(u=>u.members.forEach(m=>{m.busId=destBus.id;m.busLock=true}));
+    showLoader(true);
+    // Persist each moved venda
+    for(const u of movingUnits){
+      for(const m of u.members){await dbSaveVenda(m)}
+    }
+    showLoader(false);
+    closeM('modal-transfer');
+    navigate(CP);
+    toast(`✓ ${moving} passageiro(s) transferido(s) para o Ônibus ${destBus.num}`,'g');
+  };
+
+  if(after>destBus.cap){
+    confirmModal(`O Ônibus ${destBus.num} vai exceder a capacidade (${after}/${destBus.cap}). Deseja confirmar mesmo assim?`,doMove);
+  } else {
+    doMove();
+  }
 }
 
 let editBusId=null,outroCustos=[];

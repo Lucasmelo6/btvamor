@@ -318,8 +318,8 @@ async function loadDB(){
     db.onibus = (onibus.data||[]).map(mapBusFromDB);
     db.vendas = (vendas.data||[]).map(mapVendaFromDB);
     db.nextId = cfg.data?.value ? Number(cfg.data.value) : 100;
-    // Auto-archive buses whose travel date has passed (silent, persisted)
-    await autoArchivePastBuses();
+    // Heal any passengers pointing to a non-existent bus (would otherwise vanish from lists)
+    await healOrphanPassengers();
   }catch(e){
     console.error('Erro carregando dados:',e);
     toast('Erro ao conectar com o banco: '+e.message,'r');
@@ -327,13 +327,19 @@ async function loadDB(){
   showLoader(false);
 }
 
-// Auto-archive buses with past dates
-async function autoArchivePastBuses(){
-  const today=new Date().toISOString().slice(0,10);
-  const toArchive=db.onibus.filter(b=>!b.arquivado&&b.data<today);
-  for(const b of toArchive){
-    b.arquivado=true;
-    await dbSaveBus(b);
+// Find passengers whose busId points to a deleted bus and re-allocate them.
+// Without this they exist in the database but show in NO bus list (monitor can't see them).
+async function healOrphanPassengers(){
+  const validIds=new Set(db.onibus.map(b=>b.id));
+  const orphans=db.vendas.filter(v=>v.busId&&!validIds.has(v.busId));
+  if(!orphans.length)return;
+  // Reset orphans and re-run allocation for each affected route
+  const routes=new Set();
+  orphans.forEach(v=>{v.busId=null;routes.add(v.destino+'|'+v.data)});
+  for(const r of routes){
+    const [destino,data]=r.split('|');
+    allocateRoute(destino,data);
+    await syncRoute(destino,data);
   }
 }
 
@@ -458,11 +464,14 @@ function allocateRoute(destino,data){
   const cap=buses[0].cap||48;
 
   // Current occupancy per bus (everyone already assigned stays put)
+  const validBusIds=new Set(buses.map(b=>b.id));
+  // Heal orphan assignments: anyone pointing to a non-existent bus is reset to null
+  pax.forEach(v=>{if(v.busId&&!validBusIds.has(v.busId))v.busId=null});
   const seats={};
   buses.forEach(b=>seats[b.id]=0);
   pax.forEach(v=>{if(v.busId&&seats[v.busId]!==undefined)seats[v.busId]++});
 
-  // Only place passengers that have NO bus yet
+  // Only place passengers that have NO bus yet (includes healed orphans)
   const toPlace=pax.filter(v=>!v.busId);
   if(!toPlace.length){
     // nothing new — just renumber & clean empties
@@ -553,16 +562,10 @@ function startAutoRefresh(){
     if(anyModalOpen())return;
     const active=document.activeElement;
     if(active&&(active.tagName==='INPUT'||active.tagName==='SELECT'||active.tagName==='TEXTAREA'))return;
-    // Save filters, reload data, re-render current page (navigate restores filters)
+    // Save filters, reload data, re-render current page (navigate handles binds + filter restore)
     saveFiltersFromDOM();
     await loadDB();
-    if(CP){
-      navigate(CP);
-      if(CP==='cidades')bindCidadesPage();
-      if(CP==='pendentes')bindPendPage();
-      if(CP==='usuarios')bindUsuariosPage();
-      if(CP==='monitor')bindMonitorPage();
-    }
+    if(CP)navigate(CP);
   },60000);
 }
 function logout(){
@@ -645,6 +648,10 @@ function afterRender(page){
     const mb=document.querySelector('[data-toggle-money]');
     if(mb)mb.addEventListener('click',toggleMoney);
   }
+  if(page==='cidades')bindCidadesPage();
+  if(page==='pendentes')bindPendPage();
+  if(page==='usuarios')bindUsuariosPage();
+  if(page==='monitor')bindMonitorPage();
 }
 
 function toggleSb(){document.getElementById('sidebar').classList.toggle('on');document.getElementById('ov').classList.toggle('on')}
@@ -2413,6 +2420,7 @@ function pgRelatorios(){
 // MONITOR
 // ══════════════════════════════════════════════════
 let activeBusIdx=0;
+let ciActiveFilter='all'; // monitor check-in list filter: all|missing|present|pend
 
 function pgMonitor(){
   let myBuses;
@@ -2457,18 +2465,25 @@ function pgMonitor(){
       }).join('')}
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-      <button class="btn bg bsm" data-ci-filter="all">Todos (${pax.length})</button>
-      <button class="btn bg bsm" data-ci-filter="missing">Faltando (${missing})</button>
-      <button class="btn bg bsm" data-ci-filter="present">Presentes (${checked})</button>
-      ${pendPay?`<button class="btn b-am bsm" data-ci-filter="pend">⚠️ Pag. pendente (${pendPay})</button>`:''}
+      <button class="btn ${ciActiveFilter==='all'?'br':'bg'} bsm" data-ci-filter="all">Todos (${pax.length})</button>
+      <button class="btn ${ciActiveFilter==='missing'?'br':'bg'} bsm" data-ci-filter="missing">Faltando (${missing})</button>
+      <button class="btn ${ciActiveFilter==='present'?'br':'bg'} bsm" data-ci-filter="present">Presentes (${checked})</button>
+      ${pendPay?`<button class="btn ${ciActiveFilter==='pend'?'br':'b-am'} bsm" data-ci-filter="pend">⚠️ Pag. pendente (${pendPay})</button>`:''}
       <button class="btn br bsm" id="btn-monitor-add" style="margin-left:auto">+ Adicionar passageiro</button>
     </div>
+    ${ciActiveFilter!=='all'?`<div style="background:var(--ad);border:1px solid rgba(245,158,11,.3);border-radius:3px;padding:8px 12px;margin-bottom:12px;font-size:.78rem;color:var(--w2);display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span>🔎 Filtro ativo: <strong>${ciActiveFilter==='missing'?'Faltando':ciActiveFilter==='present'?'Presentes':'Pagamento pendente'}</strong> — alguns passageiros podem estar ocultos.</span>
+      <button class="btn bg bxs" data-ci-filter="all">Ver todos</button>
+    </div>`:''}
     <div class="prog-wrap">
       <div class="prog-hd"><span>Check-in — Ônibus ${currentBus.num}</span><span>${ckPct}%</span></div>
       <div class="prog-bar"><div class="prog-fill" style="width:${ckPct}%;background:${ckPct===100&&pax.length>0?'var(--gr)':ckPct>50?'var(--am)':'var(--r)'}"></div></div>
     </div>
     <div id="ci-list">
-      ${pax.length?pax.map((p,i)=>{
+      ${(()=>{
+        const shown=pax.filter(p=>ciActiveFilter==='all'?true:ciActiveFilter==='present'?p.checkin:ciActiveFilter==='missing'?!p.checkin:ciActiveFilter==='pend'?!isPaid(p):true);
+        if(!shown.length)return '<div style="color:var(--g);text-align:center;padding:28px">Nenhum passageiro nesta categoria. Toque em "Ver todos" para liberar a lista completa.</div>';
+        return shown.map((p,i)=>{
         const creatorTag=p.addMonitor
           ? `<span class="chip ca" style="font-size:.56rem">🚌 add. monitor${p.autorizadoPor?' · autoriz: '+escHtml(p.autorizadoPor):''}</span>`
           : (p.criadoPor?`<span class="chip cw" style="font-size:.56rem">por ${escHtml(p.criadoPor)}</span>`:'');
@@ -2488,12 +2503,13 @@ function pgMonitor(){
             <div class="ci-status"><span class="chip ${p.checkin?'cg':'cr'}">${p.checkin?'✓ Presente':'Ausente'}</span></div>
           </div>
         </div>`;
-      }).join(''):'<div style="color:var(--g);text-align:center;padding:28px">Nenhum passageiro neste ônibus</div>'}
+      }).join('');
+      })()}
     </div>`;
 }
 
 function bindMonitorPage(){
-  document.querySelectorAll('[data-select-bus]').forEach(b=>b.addEventListener('click',()=>{activeBusIdx=parseInt(b.dataset.selectBus);navigate('monitor')}));
+  document.querySelectorAll('[data-select-bus]').forEach(b=>b.addEventListener('click',()=>{activeBusIdx=parseInt(b.dataset.selectBus);ciActiveFilter='all';navigate('monitor')}));
   document.querySelectorAll('[data-ci-filter]').forEach(b=>b.addEventListener('click',()=>ciFilter(b.dataset.ciFilter)));
   document.querySelectorAll('[data-toggle-ci]').forEach(b=>b.addEventListener('click',()=>toggleCheckin(parseInt(b.dataset.toggleCi))));
   const addBtn=document.getElementById('btn-monitor-add');
@@ -2584,16 +2600,8 @@ async function toggleCheckin(id){
 }
 
 function ciFilter(type){
-  document.querySelectorAll('.ci-card').forEach(c=>{
-    const id=parseInt(c.id.replace('ci-',''));
-    const v=db.vendas.find(x=>x.id===id);
-    if(!v)return;
-    let show=true;
-    if(type==='present')show=v.checkin;
-    else if(type==='missing')show=!v.checkin;
-    else if(type==='pend')show=!isPaid(v);
-    c.style.display=show?'':'none';
-  });
+  ciActiveFilter=type||'all';
+  navigate('monitor');
 }
 
 // ══════════════════════════════════════════════════
@@ -2713,15 +2721,8 @@ document.addEventListener('click',e=>{
   else if(a==='export-csv')exportCSV();
 });
 
-// Hook page-specific bindings after navigate
-const _navigate=navigate;
-window.navigate=function(page){
-  _navigate(page);
-  if(page==='cidades')bindCidadesPage();
-  if(page==='pendentes')bindPendPage();
-  if(page==='usuarios')bindUsuariosPage();
-  if(page==='monitor')bindMonitorPage();
-};
+// Page-specific bindings now run inside afterRender (called by navigate).
+window.navigate=navigate;
 
 // ══════════════════════════════════════════════════
 // INIT

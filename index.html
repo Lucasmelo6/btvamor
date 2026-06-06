@@ -293,8 +293,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let db = { users:[], cidades:[], onibus:[], vendas:[], nextId:100 };
 
 // Map snake_case (DB) ↔ camelCase (app)
-function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
-function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
+function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,zapGrupo:b.zap_grupo||'',aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
+function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,zap_grupo:b.zapGrupo||'',aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
 function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,busLock:v.bus_lock,zapAdded:v.zap_added,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
 function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,bus_lock:v.busLock||false,zap_added:v.zapAdded||false,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
 
@@ -437,109 +437,79 @@ function pct(v){if(v.cortesia)return 100;const d=devido(v);return d?Math.min(100
 function cidade(nome){return db.cidades.find(c=>c.nome===nome)}
 
 // ══════════════════════════════════════════════════
-// BUS ALLOCATION
+// BUS ALLOCATION (incremental — never moves who's already placed)
 // ══════════════════════════════════════════════════
+// Rule: only passengers WITHOUT a bus get placed. Existing assignments are
+// never touched. Groups (titular + companions) are placed together. New buses
+// are created only when there's no room. Manual transfers are fully respected.
 function allocateRoute(destino,data){
   const pax=db.vendas.filter(v=>v.destino===destino&&v.data===data);
   if(!pax.length){
-    // Renumber any remaining buses and return
     db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.criado.localeCompare(b.criado)).forEach((b,i)=>b.num=i+1);
     return;
   }
 
-  // Separate locked (manually placed) from free passengers
-  const locked=pax.filter(v=>v.busLock&&v.busId);
-  const free=pax.filter(v=>!(v.busLock&&v.busId));
-  // Clear assignments only for free passengers
-  free.forEach(v=>v.busId=null);
-
-  // Get or create at least one bus
-  let buses=db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.num-b.num);
+  // Buses for this route, in creation order
+  let buses=db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.criado.localeCompare(b.criado));
   if(!buses.length){
-    const b={id:'b'+newId(),destino,data,num:1,cap:48,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
+    const b={id:'b'+newId(),destino,data,num:1,cap:48,monitorId:null,visivel:true,arquivado:false,zapGrupo:'',aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
     db.onibus.push(b);buses=[b];
   }
-  const cap=buses[0]?buses[0].cap:48;
+  const cap=buses[0].cap||48;
 
-  // Seat counters per bus, pre-filled by locked passengers
-  const seatsByBus={};
-  buses.forEach(b=>seatsByBus[b.id]=0);
-  locked.forEach(v=>{if(seatsByBus[v.busId]!==undefined)seatsByBus[v.busId]++});
+  // Current occupancy per bus (everyone already assigned stays put)
+  const seats={};
+  buses.forEach(b=>seats[b.id]=0);
+  pax.forEach(v=>{if(v.busId&&seats[v.busId]!==undefined)seats[v.busId]++});
 
-  // Build groups and singles from FREE passengers only
+  // Only place passengers that have NO bus yet
+  const toPlace=pax.filter(v=>!v.busId);
+  if(!toPlace.length){
+    // nothing new — just renumber & clean empties
+    cleanupRoute(destino,data);
+    return;
+  }
+
+  // Build units: groups together, singles individual — preserve insertion order
   const groupMap={};
-  const singles=[];
-  free.forEach(v=>{
+  const units=[];
+  toPlace.forEach(v=>{
     if(v.groupId){
-      if(!groupMap[v.groupId])groupMap[v.groupId]=[];
+      if(!groupMap[v.groupId]){groupMap[v.groupId]=[];units.push({type:'g',members:groupMap[v.groupId]})}
       groupMap[v.groupId].push(v);
     } else {
-      singles.push(v);
+      units.push({type:'s',members:[v]});
     }
   });
-  const groups=Object.values(groupMap);
 
-  // Ensure enough total capacity for free + locked
-  const total=pax.length;
-  const needed=Math.max(1,Math.ceil(total/cap));
-  while(buses.length<needed){
-    const n=buses.length+1;
-    const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-    db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
+  function ensureBusWithRoom(size){
+    // find first bus (creation order) that fits `size`
+    for(const b of buses){
+      if(seats[b.id]+size<=b.cap)return b;
+    }
+    // none fits — create a new one
+    const b={id:'b'+newId(),destino,data,num:buses.length+1,cap:Math.max(cap,size),monitorId:null,visivel:true,arquivado:false,zapGrupo:'',aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
+    db.onibus.push(b);buses.push(b);seats[b.id]=0;
+    return b;
   }
 
-  // Group singles by embarque (largest groups first)
-  const byEmb={};
-  singles.forEach(v=>{if(!byEmb[v.embarque])byEmb[v.embarque]=[];byEmb[v.embarque].push(v)});
-  const embGroups=Object.values(byEmb).sort((a,b)=>b.length-a.length);
-
-  function placeBus(){
-    // Return index of first bus with a free seat, creating one if needed
-    for(let i=0;i<buses.length;i++){
-      if(seatsByBus[buses[i].id]<buses[i].cap)return i;
-    }
-    const n=buses.length+1;
-    const b={id:'b'+newId(),destino,data,num:n,cap,monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-    db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
-    return buses.length-1;
-  }
-
-  // Place groups (keep together)
-  groups.forEach(grp=>{
-    let placed=false;
-    for(let i=0;i<buses.length;i++){
-      if(seatsByBus[buses[i].id]+grp.length<=buses[i].cap){
-        grp.forEach(v=>{v.busId=buses[i].id;seatsByBus[buses[i].id]++});
-        placed=true;break;
-      }
-    }
-    if(!placed){
-      // create new bus for the group
-      const n=buses.length+1;
-      const b={id:'b'+newId(),destino,data,num:n,cap:Math.max(cap,grp.length),monitorId:null,visivel:true,aluguel:0,custoMon:0,outros:[],criado:new Date().toISOString()};
-      db.onibus.push(b);buses.push(b);seatsByBus[b.id]=0;
-      grp.forEach(v=>{v.busId=b.id;seatsByBus[b.id]++});
-    }
+  units.forEach(u=>{
+    const b=ensureBusWithRoom(u.members.length);
+    u.members.forEach(v=>{v.busId=b.id;seats[b.id]++});
   });
 
-  // Place singles by embarque
-  embGroups.forEach(eg=>{
-    eg.forEach(v=>{
-      const i=placeBus();
-      v.busId=buses[i].id;seatsByBus[buses[i].id]++;
-    });
-  });
+  cleanupRoute(destino,data);
+}
 
-  // Remove empty buses with no config
-  const usedIds=new Set(pax.map(v=>v.busId));
+// Remove empty unconfigured buses and renumber the route
+function cleanupRoute(destino,data){
+  const usedIds=new Set(db.vendas.filter(v=>v.destino===destino&&v.data===data).map(v=>v.busId));
   db.onibus=db.onibus.filter(b=>{
     if(b.destino!==destino||b.data!==data)return true;
     if(usedIds.has(b.id))return true;
-    if(b.monitorId||b.aluguel||b.custoMon||(b.outros&&b.outros.length))return true;
+    if(b.monitorId||b.aluguel||b.custoMon||(b.outros&&b.outros.length)||b.zapGrupo)return true;
     return false;
   });
-
-  // Renumber remaining buses for this route
   db.onibus.filter(b=>b.destino===destino&&b.data===data).sort((a,b)=>a.criado.localeCompare(b.criado)).forEach((b,i)=>b.num=i+1);
 }
 
@@ -575,42 +545,23 @@ let refreshTimer=null;
 function anyModalOpen(){
   return !!document.querySelector('.modal-bg.on');
 }
-function captureFilters(){
-  // Save current values of all filter/search inputs on the page
-  const state={};
-  document.querySelectorAll('#content input, #content select').forEach(el=>{
-    if(el.id)state[el.id]=el.value;
-  });
-  return state;
-}
-function restoreFilters(state){
-  Object.entries(state).forEach(([id,val])=>{
-    const el=document.getElementById(id);
-    if(el&&el.value!==val){el.value=val}
-  });
-}
 function startAutoRefresh(){
   if(refreshTimer)clearInterval(refreshTimer);
   refreshTimer=setInterval(async()=>{
     if(!CU)return;
-    // Don't disrupt the user while typing in a modal or form
+    // Don't disrupt the user while a modal is open or while typing/filtering
     if(anyModalOpen())return;
-    // Don't refresh if user is actively focused on an input (typing/filtering)
     const active=document.activeElement;
     if(active&&(active.tagName==='INPUT'||active.tagName==='SELECT'||active.tagName==='TEXTAREA'))return;
-    const filterState=captureFilters();
+    // Save filters, reload data, re-render current page (navigate restores filters)
+    saveFiltersFromDOM();
     await loadDB();
     if(CP){
-      const renders={dashboard:pgDashboard,venda:pgVenda,passageiros:pgPassageiros,onibus:pgOnibus,cidades:pgCidades,pendentes:pgPendentes,financeiro:pgFinanceiro,relatorios:pgRelatorios,usuarios:pgUsuarios,monitor:pgMonitor};
-      if(renders[CP]){
-        document.getElementById('content').innerHTML=renders[CP]();
-        restoreFilters(filterState); // restore BEFORE afterRender so filtered views respect them
-        afterRender(CP);
-        if(CP==='cidades')bindCidadesPage();
-        if(CP==='pendentes')bindPendPage();
-        if(CP==='usuarios')bindUsuariosPage();
-        if(CP==='monitor')bindMonitorPage();
-      }
+      navigate(CP);
+      if(CP==='cidades')bindCidadesPage();
+      if(CP==='pendentes')bindPendPage();
+      if(CP==='usuarios')bindUsuariosPage();
+      if(CP==='monitor')bindMonitorPage();
     }
   },60000);
 }
@@ -652,7 +603,23 @@ function buildSidebar(){
   });
 }
 
+// Persistent filter state per page — survives re-renders and auto-refresh
+const filterState={};
+function saveFiltersFromDOM(){
+  const ids=['fp-n','fp-d','fp-dt','fp-p','fp-c','fo-d','fo-dt','fo-arq','fo-pl','fpc-d','fpc-dt','fpc-arq'];
+  ids.forEach(id=>{const el=document.getElementById(id);if(el)filterState[id]=el.value});
+}
+function restoreFiltersToDOM(){
+  Object.entries(filterState).forEach(([id,val])=>{
+    const el=document.getElementById(id);
+    if(el&&val!=null&&val!=='')el.value=val;
+  });
+}
+
 function navigate(page){
+  // Save current filters before wiping the DOM (so a re-render of the same page keeps them)
+  saveFiltersFromDOM();
+  const samePage=(CP===page);
   CP=page;
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
@@ -671,9 +638,9 @@ function navigate(page){
 }
 
 function afterRender(page){
-  if(page==='passageiros')filterPass();
-  if(page==='onibus')renderBusCards();
-  if(page==='financeiro'){renderFinCharts();renderPCCards();}
+  if(page==='passageiros'){restoreFiltersToDOM();filterPass();restoreFiltersToDOM();renderPassRows();}
+  if(page==='onibus'){renderBusCards();restoreFiltersToDOM();renderBusCards();}
+  if(page==='financeiro'){renderFinCharts();renderPCCards();restoreFiltersToDOM();renderPCCards();}
   if(page==='dashboard'){
     const mb=document.querySelector('[data-toggle-money]');
     if(mb)mb.addEventListener('click',toggleMoney);
@@ -795,7 +762,7 @@ function buildModalVenda(){
       </div>
       <div class="fg2">
         <div class="f full"><label class="lbl">Nome do Titular *</label><input type="text" id="v-nome" placeholder="Nome completo"></div>
-        <div class="f"><label class="lbl">WhatsApp *</label><input type="tel" id="v-whats" placeholder="(81) 99999-0000"></div>
+        <div class="f"><label class="lbl">WhatsApp *</label><input type="tel" id="v-whats" placeholder="55 81 9 9999-8888"><div id="v-whats-hint" style="font-size:.68rem;margin-top:3px"></div></div>
         <div class="f"><label class="lbl">E-mail</label><input type="email" id="v-email" placeholder="email@exemplo.com"></div>
         <div class="f"><label class="lbl">Destino *</label><select id="v-dest">${destOpts}</select></div>
         <div class="f"><label class="lbl">Data da Viagem *</label><select id="v-data"><option value="">Selecione o destino</option></select></div>
@@ -828,7 +795,7 @@ function buildModalVenda(){
       <div class="add-comp" id="add-comp-form" style="display:none">
         <div class="fg2" style="margin-bottom:10px">
           <div class="f"><label class="lbl">Nome *</label><input type="text" id="c-nome" placeholder="Nome do acompanhante"></div>
-          <div class="f"><label class="lbl">WhatsApp</label><input type="tel" id="c-whats" placeholder="(81) 99999-0000"></div>
+          <div class="f"><label class="lbl">WhatsApp</label><input type="tel" id="c-whats" placeholder="55 81 9 9999-8888"><div id="c-whats-hint" style="font-size:.68rem;margin-top:3px"></div></div>
           <div class="f full"><label class="lbl">Local de Embarque</label>
             <select id="c-embarque"><option value="">Mesmo do titular</option></select>
           </div>
@@ -906,6 +873,8 @@ function openModalVenda(editId){
     // NEW: auto-fill colaborador with logged-in user
     document.getElementById('v-colab').value=CU?CU.nome:'';
   }
+  wirePhoneField('v-whats','v-whats-hint');
+  wirePhoneField('c-whats','c-whats-hint');
   renderCompList();
   openM('modal-venda');
 }
@@ -1066,7 +1035,7 @@ function renderCompList(){
 
 async function salvarVenda(){
   const nome=document.getElementById('v-nome').value.trim();
-  const whats=document.getElementById('v-whats').value.trim();
+  const whats=fmtPhone(document.getElementById('v-whats').value.trim())||document.getElementById('v-whats').value.trim();
   const destino=document.getElementById('v-dest').value;
   const data=document.getElementById('v-data').value;
   const embarque=document.getElementById('v-embarque').value;
@@ -1180,8 +1149,8 @@ function filterPass(){
   ['fp-n','fp-d','fp-dt','fp-p','fp-c'].forEach(id=>{
     const el=document.getElementById(id);
     if(el&&!el.dataset.bound){
-      el.addEventListener('input',renderPassRows);
-      el.addEventListener('change',renderPassRows);
+      el.addEventListener('input',()=>{saveFiltersFromDOM();renderPassRows()});
+      el.addEventListener('change',()=>{saveFiltersFromDOM();renderPassRows()});
       el.dataset.bound='1';
     }
   });
@@ -1308,6 +1277,7 @@ function renderBusCards(){
     if(el&&!el.dataset.bound){
       el.addEventListener('change',()=>{
         if(el.id==='fo-arq')refreshOnibusDateOptions();
+        saveFiltersFromDOM();
         renderBusCards();
       });
       el.dataset.bound='1';
@@ -1328,7 +1298,7 @@ function renderBusCards(){
   if(!area)return;
   if(!buses.length){area.innerHTML='<div style="color:var(--g);padding:32px;text-align:center">Nenhum ônibus encontrado com esses filtros.</div>';return}
   area.innerHTML=buses.map(b=>{
-    let pax=db.vendas.filter(v=>v.busId===b.id);
+    let pax=db.vendas.filter(v=>v.busId===b.id).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
     const paxView=fpl?pax.filter(v=>v.criadoPor===fpl):pax;
     const ocp=Math.round(pax.length/b.cap*100);
     const mon=db.users.find(u=>u.id===b.monitorId);
@@ -1369,14 +1339,14 @@ function renderBusCards(){
             <td>${p.cortesia?'<span class="chip cb">🎁 Cortesia</span>':isPaid(p)?'<span class="chip cg">✓</span>':'<span class="chip ca">'+pct(p)+'%</span>'}</td>
             <td>${p.isComp?'<span class="chip cb">Acomp.</span>':p.groupId?'<span class="chip cw">Titular</span>':''}</td>
             <td style="font-size:.72rem;color:var(--g)">${p.addMonitor?'<span class="chip ca" style="font-size:.54rem">🚌</span> ':''}${escHtml(p.criadoPor||'—')}</td>
-            <td><button class="btn ${p.zapAdded?'b-grn':'bg'} bxs" data-zap-toggle="${p.id}" title="${p.zapAdded?'Enviado ao grupo':'Marcar como enviado'}">${p.zapAdded?'✅ No grupo':'📲 Enviar'}</button></td></tr>`).join('')}
+            <td><button class="btn ${p.zapAdded?'b-grn':'b-bl'} bxs" data-zap-send="${p.id}" title="${p.zapAdded?'Clique para desmarcar':'Abrir WhatsApp e marcar como enviado'}">${p.zapAdded?'✅ No grupo':'📲 Enviar'}</button></td></tr>`).join('')}
           </tbody>
         </table></div>`:'<div style="color:var(--g);font-size:.82rem;padding:10px 0">Nenhum passageiro neste ônibus</div>'}
       </div>`;
   }).join('');
   area.querySelectorAll('[data-config-bus]').forEach(b=>b.addEventListener('click',()=>openBusConfig(b.dataset.configBus)));
   area.querySelectorAll('[data-print-bus]').forEach(b=>b.addEventListener('click',()=>printBus(b.dataset.printBus)));
-  area.querySelectorAll('[data-zap-toggle]').forEach(b=>b.addEventListener('click',()=>toggleZap(parseInt(b.dataset.zapToggle))));
+  area.querySelectorAll('[data-zap-send]').forEach(b=>b.addEventListener('click',()=>zapSend(parseInt(b.dataset.zapSend))));
   area.querySelectorAll('[data-arch-bus]').forEach(b=>b.addEventListener('click',()=>toggleArchiveBus(b.dataset.archBus)));
   area.querySelectorAll('[data-transfer-bus]').forEach(b=>b.addEventListener('click',()=>openTransferModal(b.dataset.transferBus)));
 }
@@ -1392,14 +1362,116 @@ async function toggleArchiveBus(bid){
   toast(b.arquivado?'📦 Ônibus arquivado':'📤 Ônibus reativado','g');
 }
 
-async function toggleZap(id){
+// Normalize a Brazilian phone to wa.me format (digits only, with country code)
+function waPhone(raw){
+  let d=String(raw||'').replace(/\D/g,'');
+  if(!d)return '';
+  // If it doesn't start with 55 (Brazil), prepend it
+  if(!d.startsWith('55'))d='55'+d;
+  return d;
+}
+
+// Format phone for display: 55 DDD 9 XXXX-XXXX
+function fmtPhone(raw){
+  const d=waPhone(raw);
+  if(!d)return '';
+  // d starts with 55
+  const rest=d.slice(2); // DDD + number
+  const ddd=rest.slice(0,2);
+  const num=rest.slice(2);
+  if(num.length<=4)return `55 ${ddd} ${num}`.trim();
+  if(num.length<=8){
+    // 8-digit (landline-ish): XXXX-XXXX
+    return `55 ${ddd} ${num.slice(0,4)}-${num.slice(4)}`;
+  }
+  // 9-digit mobile: 9 XXXX-XXXX
+  return `55 ${ddd} ${num.slice(0,1)} ${num.slice(1,5)}-${num.slice(5,9)}`;
+}
+
+// Validate: expect 55 + 2-digit DDD + 8 or 9 digit number = 12 or 13 digits total
+function phoneValid(raw){
+  const d=waPhone(raw);
+  return d.length===12||d.length===13;
+}
+
+// Live mask applied as user types in a phone field
+function maskPhoneInput(el){
+  const formatted=fmtPhone(el.value);
+  if(formatted)el.value=formatted;
+}
+
+// Wire a phone input to live-mask + show validation hint in a sibling element
+function wirePhoneField(inputId,hintId){
+  const inp=document.getElementById(inputId);
+  const hint=document.getElementById(hintId);
+  if(!inp)return;
+  const update=()=>{
+    // mask while preserving cursor at end (simple approach)
+    maskPhoneInput(inp);
+    if(!hint)return;
+    const d=waPhone(inp.value);
+    if(!inp.value.trim()){hint.textContent='';hint.style.color='';return}
+    if(phoneValid(inp.value)){
+      hint.textContent='✓ Número válido';
+      hint.style.color='var(--gr)';
+    } else {
+      const faltam=d.length<12?` (faltam ${12-d.length>0?12-d.length:0} dígito(s) ou mais)`:'';
+      hint.textContent=`⚠️ Número parece incompleto${faltam} — use 55 DDD 9 XXXX-XXXX`;
+      hint.style.color='var(--am)';
+    }
+  };
+  inp.addEventListener('input',update);
+  inp.addEventListener('blur',update);
+  // initialize (for edit mode)
+  update();
+}
+
+async function zapSend(id){
   const v=db.vendas.find(x=>x.id===id);
   if(!v)return;
-  v.zapAdded=!v.zapAdded;
+  // If already marked, a click means "undo"
+  if(v.zapAdded){
+    v.zapAdded=false;
+    await dbSaveVenda(v);
+    renderBusCards();
+    toast(`${v.nome} desmarcado`,'');
+    return;
+  }
+  const bus=db.onibus.find(b=>b.id===v.busId);
+  const link=bus&&bus.zapGrupo?bus.zapGrupo:'';
+  const fone=waPhone(v.whats);
+  if(!fone){
+    toast('Passageiro sem WhatsApp válido — marcando mesmo assim','');
+  }
+  // Build the message — pulls bus number, destination and date automatically
+  const primeiroNome=v.nome.split(' ')[0];
+  const destinoLimpo=v.destino.split('–')[0].trim();
+  const dataFmt=fmtD(v.data);
+  const numOnibus=bus?bus.num:'';
+  let msg=`Olá, ${primeiroNome}!\n\n`;
+  msg+=`Sua vaga com a *Bate Volta do Amor* está confirmada!\n\n`;
+  msg+=`*Destino:* ${destinoLimpo}\n`;
+  msg+=`*Data:* ${dataFmt}\n`;
+  if(numOnibus)msg+=`*Ônibus:* ${numOnibus}\n`;
+  msg+=`\n`;
+  if(link){
+    msg+=`Este é o grupo exclusivo da sua viagem, onde vamos compartilhar todas as informações importantes (horários, ponto de embarque e avisos). Entre por aqui:\n${link}\n\n`;
+    msg+=`Se outras pessoas vão viajar com você, pode encaminhar este convite para elas entrarem também.\n\n`;
+    msg+=`Qualquer dúvida, é só chamar. Bora curtir esse São João!`;
+  } else {
+    msg+=`Em breve enviaremos o link do grupo exclusivo da sua viagem, com todas as informações de horário e embarque.\n\n`;
+    msg+=`Qualquer dúvida, é só chamar. Bora curtir esse São João!`;
+  }
+  // Open WhatsApp (conversation + pre-filled message)
+  const waUrl=fone
+    ? `https://wa.me/${fone}?text=${encodeURIComponent(msg)}`
+    : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  window.open(waUrl,'_blank');
+  // Mark green right away (as chosen)
+  v.zapAdded=true;
   await dbSaveVenda(v);
-  // Re-render just the bus list (preserve filters)
   renderBusCards();
-  toast(v.zapAdded?`✅ ${v.nome} marcado como no grupo`:`${v.nome} desmarcado`,v.zapAdded?'g':'');
+  toast(`✅ ${v.nome} — WhatsApp aberto e marcado`,'g');
 }
 
 // ══════════════════════════════════════════════════
@@ -1616,6 +1688,7 @@ function buildModalBus(){
         <label class="lbl" style="margin:0">Visível para monitores</label>
         <label class="toggle"><input type="checkbox" id="mb-vis"><span class="tslider"></span></label>
       </div>
+      <div class="f" style="margin-top:8px"><label class="lbl">📲 Link do grupo de WhatsApp deste ônibus</label><input type="text" id="mb-zapgrupo" placeholder="https://chat.whatsapp.com/..."></div>
       <div style="font-size:.74rem;color:var(--g);background:var(--k3);border-radius:2px;padding:10px 12px;margin-top:8px">
         💡 Os custos do ônibus (aluguel, monitor, outros) agora ficam na aba <strong>Prestação de Contas</strong>.
       </div>
@@ -1642,6 +1715,7 @@ function openBusConfig(bid){
   document.getElementById('mb-title').textContent=`Ônibus ${b.num} — ${b.destino}`;
   document.getElementById('mb-cap').value=b.cap;
   document.getElementById('mb-vis').checked=b.visivel!==false;
+  document.getElementById('mb-zapgrupo').value=b.zapGrupo||'';
   const monSel=document.getElementById('mb-monitor');
   const monitors=db.users.filter(u=>u.role==='monitor'&&u.ativo!==false);
   monSel.innerHTML='<option value="">Sem monitor</option>'+monitors.map(m=>`<option value="${m.id}"${b.monitorId===m.id?' selected':''}>${escHtml(m.nome)}</option>`).join('');
@@ -1656,6 +1730,7 @@ async function salvarBusConfig(){
   b.cap=parseInt(document.getElementById('mb-cap').value)||48;
   b.monitorId=document.getElementById('mb-monitor').value||null;
   b.visivel=document.getElementById('mb-vis').checked;
+  b.zapGrupo=document.getElementById('mb-zapgrupo').value.trim();
   allocateRoute(b.destino,b.data);
   showLoader(true);
   await syncRoute(b.destino,b.data);
@@ -1945,6 +2020,7 @@ function renderPCCards(){
     if(el&&!el.dataset.bound){
       el.addEventListener('change',()=>{
         if(el.id==='fpc-arq')refreshPCDateOptions();
+        saveFiltersFromDOM();
         renderPCCards();
       });
       el.dataset.bound='1';
@@ -2434,7 +2510,7 @@ function buildModalMonitorAdd(){
       </div>
       <div class="fg1">
         <div class="f"><label class="lbl">Nome do Passageiro *</label><input type="text" id="ma-nome" placeholder="Nome completo"></div>
-        <div class="f"><label class="lbl">WhatsApp</label><input type="tel" id="ma-whats" placeholder="(81) 99999-0000"></div>
+        <div class="f"><label class="lbl">WhatsApp</label><input type="tel" id="ma-whats" placeholder="55 81 9 9999-8888"><div id="ma-whats-hint" style="font-size:.68rem;margin-top:3px"></div></div>
         <div class="f"><label class="lbl">Local de Embarque</label><select id="ma-embarque"></select></div>
         <div class="f"><label class="lbl">Quem autorizou? * <span style="color:var(--g2);font-weight:400;text-transform:none">(nome do admin)</span></label><input type="text" id="ma-autoriz" placeholder="Ex: Lucas"></div>
         <div class="f"><label class="lbl">Observação</label><input type="text" id="ma-obs" placeholder="Ex: pagou no PIX na hora"></div>
@@ -2467,6 +2543,7 @@ function openModalMonitorAdd(){
   embSel.innerHTML=(c&&c.embarques.length?c.embarques:[bus.destino]).map(e=>`<option>${escHtml(e)}</option>`).join('');
   document.getElementById('btn-save-monitor-add').addEventListener('click',()=>salvarMonitorAdd(bus));
   modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
+  wirePhoneField('ma-whats','ma-whats-hint');
   openM('modal-monitor-add');
 }
 

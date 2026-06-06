@@ -1450,16 +1450,15 @@ async function zapSend(id){
   if(!fone){
     toast('Passageiro sem WhatsApp válido — marcando mesmo assim','');
   }
-  // Build the message — pulls bus number, destination and date automatically
+  // Build the message — pulls destination, date and boarding location automatically
   const primeiroNome=v.nome.split(' ')[0];
   const destinoLimpo=v.destino.split('–')[0].trim();
   const dataFmt=fmtD(v.data);
-  const numOnibus=bus?bus.num:'';
   let msg=`Olá, ${primeiroNome}!\n\n`;
   msg+=`Sua vaga com a *Bate Volta do Amor* está confirmada!\n\n`;
   msg+=`*Destino:* ${destinoLimpo}\n`;
   msg+=`*Data:* ${dataFmt}\n`;
-  if(numOnibus)msg+=`*Ônibus:* ${numOnibus}\n`;
+  if(v.embarque)msg+=`*Local de embarque:* ${v.embarque}\n`;
   msg+=`\n`;
   if(link){
     msg+=`Este é o grupo exclusivo da sua viagem, onde vamos compartilhar todas as informações importantes (horários, ponto de embarque e avisos). Entre por aqui:\n${link}\n\n`;

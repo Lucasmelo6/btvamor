@@ -6,6 +6,7 @@
 <title>Bate Volta do Amor</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --k:#080808;--k2:#111;--k3:#1a1a1a;--k4:#242424;--k5:#2e2e2e;
@@ -1142,7 +1143,7 @@ function pgPassageiros(){
       <div class="f"><label class="lbl">Data</label><select id="fp-dt"><option value="">Todas</option>${dateOpts}</select></div>
       <div class="f"><label class="lbl">Pagamento</label><select id="fp-p"><option value="">Todos</option><option value="pago">Quitado</option><option value="parcial">Parcial</option><option value="cortesia">Cortesia</option></select></div>
       <div class="f"><label class="lbl">Cadastrado por</label><select id="fp-c"><option value="">Todos</option>${colabOpts}</select></div>
-      <div style="margin-top:auto"><button class="btn br bsm" data-action="open-venda">+ Nova</button></div>
+      <div style="margin-top:auto;display:flex;gap:6px"><button class="btn b-bl bsm" id="btn-bulk-upload">📤 Upload em massa</button><button class="btn br bsm" data-action="open-venda">+ Nova</button></div>
     </div>
     <div class="card" style="padding:0">
       <div class="tw"><table>
@@ -1161,6 +1162,8 @@ function filterPass(){
       el.dataset.bound='1';
     }
   });
+  const bulkBtn=document.getElementById('btn-bulk-upload');
+  if(bulkBtn&&!bulkBtn.dataset.bound){bulkBtn.addEventListener('click',openBulkUpload);bulkBtn.dataset.bound='1'}
   renderPassRows();
 }
 
@@ -1478,6 +1481,306 @@ async function zapSend(id){
   await dbSaveVenda(v);
   renderBusCards();
   toast(`✅ ${v.nome} — WhatsApp aberto e marcado`,'g');
+}
+
+// ══════════════════════════════════════════════════
+// UPLOAD EM MASSA DE PASSAGEIROS (Excel)
+// ══════════════════════════════════════════════════
+let bulkRows=[];      // parsed + validated rows
+let bulkConfig={destino:'',data:'',busId:'',embarquePadrao:''};
+
+function openBulkUpload(){
+  bulkRows=[];
+  bulkConfig={destino:'',data:'',busId:'',embarquePadrao:''};
+  let modal=document.getElementById('modal-bulk');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='modal-bulk';
+    modal.className='modal-bg';
+    document.body.appendChild(modal);
+  }
+  renderBulkStep1();
+  openM('modal-bulk');
+}
+
+// STEP 1 — choose route/date/bus + upload file
+function renderBulkStep1(){
+  const modal=document.getElementById('modal-bulk');
+  const destOpts='<option value="">Selecione...</option>'+db.cidades.map(c=>`<option value="${escHtml(c.nome)}">${escHtml(c.nome)}</option>`).join('');
+  modal.innerHTML=`
+    <div class="modal modal-lg">
+      <div class="modal-t"><span>📤 Upload em massa de passageiros</span><button class="modal-close" data-close="modal-bulk">✕</button></div>
+      <div style="font-size:.8rem;color:var(--g);margin-bottom:16px">
+        Baixe o modelo, preencha no Excel e faça o upload. Você poderá revisar tudo antes de confirmar.
+        <a href="modelo_upload_passageiros.xlsx" download style="color:var(--bl)">⬇️ Não tem o modelo? Peça ao admin o arquivo "modelo_upload_passageiros.xlsx".</a>
+      </div>
+      <div class="fg2">
+        <div class="f"><label class="lbl">Destino *</label><select id="bu-dest">${destOpts}</select></div>
+        <div class="f"><label class="lbl">Data da Viagem *</label><select id="bu-data"><option value="">Selecione o destino</option></select></div>
+        <div class="f"><label class="lbl">Ônibus de destino</label><select id="bu-bus"><option value="">Distribuir automaticamente (cria se precisar)</option></select></div>
+        <div class="f"><label class="lbl">Embarque padrão (p/ linhas sem embarque)</label><select id="bu-emb"><option value="">Selecione o destino</option></select></div>
+      </div>
+      <div class="divider"></div>
+      <div class="f"><label class="lbl">Arquivo Excel (.xlsx)</label>
+        <input type="file" id="bu-file" accept=".xlsx,.xls" style="padding:8px;background:var(--k3);border:1px dashed var(--bdr);border-radius:3px">
+      </div>
+      <div id="bu-msg" style="font-size:.8rem;margin-top:10px"></div>
+      <div class="btn-row">
+        <button class="btn br" id="bu-process" disabled>📋 Carregar e revisar</button>
+        <button class="btn bg" data-close="modal-bulk">Cancelar</button>
+      </div>
+    </div>`;
+  // Populate dates/embarques when destination changes
+  document.getElementById('bu-dest').addEventListener('change',e=>{
+    const c=cidade(e.target.value);
+    const dataSel=document.getElementById('bu-data');
+    const embSel=document.getElementById('bu-emb');
+    const busSel=document.getElementById('bu-bus');
+    if(!c){dataSel.innerHTML='<option value="">Selecione o destino</option>';embSel.innerHTML='<option value="">Selecione o destino</option>';return}
+    const hoje=new Date().toISOString().slice(0,10);
+    const datas=c.datas.filter(d=>d>=hoje);
+    dataSel.innerHTML='<option value="">Selecione a data</option>'+datas.map(d=>`<option value="${d}">${fmtD(d)}</option>`).join('');
+    embSel.innerHTML='<option value="">(usar embarque de cada linha)</option>'+c.embarques.map(em=>`<option>${escHtml(em)}</option>`).join('');
+    busSel.innerHTML='<option value="">Distribuir automaticamente (cria se precisar)</option>';
+  });
+  document.getElementById('bu-data').addEventListener('change',refreshBulkBusOptions);
+  document.getElementById('bu-file').addEventListener('change',()=>{
+    const has=document.getElementById('bu-file').files.length>0;
+    document.getElementById('bu-process').disabled=!has;
+  });
+  document.getElementById('bu-process').addEventListener('click',processBulkFile);
+  modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
+}
+
+function refreshBulkBusOptions(){
+  const destino=document.getElementById('bu-dest').value;
+  const data=document.getElementById('bu-data').value;
+  const busSel=document.getElementById('bu-bus');
+  if(!destino||!data){busSel.innerHTML='<option value="">Distribuir automaticamente (cria se precisar)</option>';return}
+  const buses=db.onibus.filter(b=>b.destino===destino&&b.data===data&&!b.arquivado).sort((a,b)=>a.num-b.num);
+  busSel.innerHTML='<option value="">Distribuir automaticamente (cria se precisar)</option>'+buses.map(b=>{
+    const occ=db.vendas.filter(v=>v.busId===b.id).length;
+    return`<option value="${b.id}">Ônibus ${b.num} — ${occ}/${b.cap} (${b.cap-occ} vagas)</option>`;
+  }).join('');
+}
+
+function processBulkFile(){
+  const destino=document.getElementById('bu-dest').value;
+  const data=document.getElementById('bu-data').value;
+  if(!destino||!data){toast('Selecione destino e data','r');return}
+  const file=document.getElementById('bu-file').files[0];
+  if(!file){toast('Selecione o arquivo Excel','r');return}
+  bulkConfig={
+    destino,data,
+    busId:document.getElementById('bu-bus').value||'',
+    embarquePadrao:document.getElementById('bu-emb').value||''
+  };
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const sheet=wb.Sheets['Passageiros']||wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(sheet,{defval:''});
+      parseBulkRows(rows);
+      if(!bulkRows.length){
+        document.getElementById('bu-msg').innerHTML='<span style="color:var(--am)">Nenhuma linha de passageiro encontrada na planilha.</span>';
+        return;
+      }
+      renderBulkStep2();
+    }catch(err){
+      console.error(err);
+      document.getElementById('bu-msg').innerHTML='<span style="color:var(--r2)">Erro ao ler o arquivo. Confirme que é um .xlsx válido.</span>';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Normalize a header key (lowercase, no accents, no spaces)
+function normKey(k){return String(k||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')}
+function truthy(val){const s=String(val||'').trim().toLowerCase();return s==='sim'||s==='s'||s==='1'||s==='x'||s==='true'||s==='yes'}
+
+function parseBulkRows(rawRows){
+  bulkRows=[];
+  const c=cidade(bulkConfig.destino);
+  const precoCidade=c?c.preco:0;
+  rawRows.forEach(raw=>{
+    // Map keys flexibly
+    const r={};
+    Object.entries(raw).forEach(([k,v])=>{r[normKey(k)]=v});
+    const nome=String(r.nome||'').trim();
+    if(!nome)return; // skip empty rows
+    const whatsRaw=String(r.whatsapp||r.whats||r.telefone||r.celular||'').trim();
+    const embarque=String(r.embarque||'').trim()||bulkConfig.embarquePadrao||'';
+    const valorTotal=parseFloat(String(r.valortotal||'').replace(',','.'))||precoCidade;
+    const valorPago=parseFloat(String(r.valorpago||'').replace(',','.'))||0;
+    const cortesia=truthy(r.cortesia);
+    const desconto=parseFloat(String(r.desconto||'').replace(',','.'))||0;
+    const grupo=String(r.grupo||'').trim();
+    const titular=truthy(r.titular);
+    const responsavel=String(r.responsavel||r.colaborador||r.colab||r.vendedor||'').trim();
+    const obs=String(r.observacao||r.obs||'').trim();
+    bulkRows.push({
+      nome,whats:whatsRaw?fmtPhone(whatsRaw):'',embarque,
+      valorTotal,valorPago:cortesia?0:valorPago,cortesia,desconto:cortesia?0:desconto,
+      grupo,titular,responsavel,obs,
+      _whatsValid:!whatsRaw||phoneValid(whatsRaw),
+      _embOk:!!embarque
+    });
+  });
+}
+
+// STEP 2 — validation table
+function renderBulkStep2(){
+  const modal=document.getElementById('modal-bulk');
+  const c=cidade(bulkConfig.destino);
+  const embOpts=c?c.embarques.map(e=>`<option>${escHtml(e)}</option>`).join(''):'';
+  // Validate group consistency: each group should have exactly one titular
+  const groupTitulars={};
+  bulkRows.forEach(r=>{if(r.grupo){if(!groupTitulars[r.grupo])groupTitulars[r.grupo]=0;if(r.titular)groupTitulars[r.grupo]++}});
+  const errCount=bulkRows.filter(r=>!r.nome||!r._whatsValid||!r._embOk).length;
+  const grpWarn=Object.entries(groupTitulars).filter(([g,n])=>n!==1);
+
+  const busLabel=bulkConfig.busId?(()=>{const b=db.onibus.find(x=>x.id===bulkConfig.busId);return b?`Ônibus ${b.num}`:'(automático)'})():'Distribuição automática';
+
+  const rowsHtml=bulkRows.map((r,i)=>{
+    const nameErr=!r.nome;
+    const phoneErr=!r._whatsValid;
+    const embErr=!r._embOk;
+    return`<tr style="${(nameErr||phoneErr||embErr)?'background:var(--rd)':''}">
+      <td style="color:var(--g2)">${i+1}</td>
+      <td><input type="text" value="${escHtml(r.nome)}" data-bk-nome="${i}" style="min-width:140px${nameErr?';border-color:var(--r)':''}"></td>
+      <td><input type="text" value="${escHtml(r.whats)}" data-bk-whats="${i}" style="min-width:140px${phoneErr?';border-color:var(--r)':''}" title="${phoneErr?'Telefone inválido':''}"></td>
+      <td><input type="text" list="bk-emb-list" value="${escHtml(r.embarque)}" data-bk-emb="${i}" style="min-width:120px${embErr?';border-color:var(--am)':''}" placeholder="${escHtml(bulkConfig.embarquePadrao||'—')}"></td>
+      <td><input type="number" value="${r.valorTotal||''}" data-bk-vt="${i}" style="width:80px"></td>
+      <td><input type="number" value="${r.cortesia?'':r.valorPago||''}" data-bk-vp="${i}" style="width:80px" ${r.cortesia?'disabled':''}></td>
+      <td style="text-align:center"><input type="checkbox" data-bk-cort="${i}" ${r.cortesia?'checked':''}></td>
+      <td><input type="number" value="${r.desconto||''}" data-bk-desc="${i}" style="width:60px" ${r.cortesia?'disabled':''}></td>
+      <td><input type="text" value="${escHtml(r.grupo)}" data-bk-grp="${i}" style="width:60px"></td>
+      <td style="text-align:center"><input type="checkbox" data-bk-tit="${i}" ${r.titular?'checked':''}></td>
+      <td><input type="text" value="${escHtml(r.responsavel)}" data-bk-resp="${i}" style="min-width:100px" placeholder="${escHtml(CU?CU.nome:'')}"></td>
+      <td><button class="btn b-dng bxs" data-bk-rm="${i}">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  modal.innerHTML=`
+    <div class="modal" style="max-width:1100px;width:96vw">
+      <div class="modal-t"><span>📋 Revisar antes de incluir — ${bulkRows.length} passageiro(s)</span><button class="modal-close" data-close="modal-bulk">✕</button></div>
+      <datalist id="bk-emb-list">${embOpts}</datalist>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:.78rem">
+        <span class="chip cr">📍 ${escHtml(bulkConfig.destino.split('–')[0].trim())}</span>
+        <span class="chip cw">📅 ${fmtD(bulkConfig.data)}</span>
+        <span class="chip cb">🚌 ${busLabel}</span>
+        ${errCount?`<span class="chip ca">⚠️ ${errCount} linha(s) com erro</span>`:'<span class="chip cg">✓ Tudo válido</span>'}
+      </div>
+      ${grpWarn.length?`<div style="background:var(--ad);border:1px solid rgba(245,158,11,.3);border-radius:3px;padding:8px 12px;margin-bottom:10px;font-size:.76rem;color:var(--w2)">⚠️ Grupos sem 1 titular definido: ${grpWarn.map(([g,n])=>`${g} (${n} titulares)`).join(', ')}. O primeiro do grupo será usado como titular.</div>`:''}
+      <div style="overflow:auto;max-height:52vh;border:1px solid var(--bdr);border-radius:3px">
+        <table style="font-size:.8rem">
+          <thead style="position:sticky;top:0;background:var(--k3);z-index:1"><tr>
+            <th>#</th><th>Nome*</th><th>WhatsApp</th><th>Embarque</th><th>Total</th><th>Pago</th><th>Cortesia</th><th>Desc.</th><th>Grupo</th><th>Titular</th><th>Responsável</th><th></th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="btn-row">
+        <button class="btn bg" id="bk-back">← Voltar</button>
+        <button class="btn br" id="bk-confirm">✅ Confirmar inclusão de ${bulkRows.length} passageiro(s)</button>
+      </div>
+    </div>`;
+
+  // Bind inline edits
+  modal.querySelectorAll('[data-bk-nome]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkNome].nome=e.target.value.trim();revalidateBulkRow(+e.target.dataset.bkNome)}));
+  modal.querySelectorAll('[data-bk-whats]').forEach(el=>el.addEventListener('change',e=>{const i=+e.target.dataset.bkWhats;bulkRows[i].whats=e.target.value.trim()?fmtPhone(e.target.value.trim()):'';revalidateBulkRow(i);renderBulkStep2()}));
+  modal.querySelectorAll('[data-bk-emb]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkEmb].embarque=e.target.value.trim()}));
+  modal.querySelectorAll('[data-bk-vt]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkVt].valorTotal=parseFloat(e.target.value)||0}));
+  modal.querySelectorAll('[data-bk-vp]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkVp].valorPago=parseFloat(e.target.value)||0}));
+  modal.querySelectorAll('[data-bk-desc]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkDesc].desconto=parseFloat(e.target.value)||0}));
+  modal.querySelectorAll('[data-bk-grp]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkGrp].grupo=e.target.value.trim()}));
+  modal.querySelectorAll('[data-bk-cort]').forEach(el=>el.addEventListener('change',e=>{const i=+e.target.dataset.bkCort;bulkRows[i].cortesia=e.target.checked;if(e.target.checked){bulkRows[i].valorPago=0;bulkRows[i].desconto=0}renderBulkStep2()}));
+  modal.querySelectorAll('[data-bk-tit]').forEach(el=>el.addEventListener('change',e=>{bulkRows[+e.target.dataset.bkTit].titular=e.target.checked}));
+  modal.querySelectorAll('[data-bk-resp]').forEach(el=>el.addEventListener('input',e=>{bulkRows[+e.target.dataset.bkResp].responsavel=e.target.value.trim()}));
+  modal.querySelectorAll('[data-bk-rm]').forEach(el=>el.addEventListener('click',e=>{bulkRows.splice(+e.target.dataset.bkRm,1);renderBulkStep2()}));
+  document.getElementById('bk-back').addEventListener('click',renderBulkStep1);
+  document.getElementById('bk-confirm').addEventListener('click',confirmBulkUpload);
+  modal.querySelectorAll('[data-close]').forEach(el=>el.addEventListener('click',()=>closeM(el.dataset.close)));
+}
+
+function revalidateBulkRow(i){
+  const r=bulkRows[i];
+  if(!r)return;
+  r._whatsValid=!r.whats||phoneValid(r.whats);
+  r._embOk=!!(r.embarque||bulkConfig.embarquePadrao);
+}
+
+async function confirmBulkUpload(){
+  // Final validation
+  const invalid=bulkRows.filter(r=>!r.nome);
+  if(invalid.length){toast('Há linhas sem nome — corrija antes de confirmar','r');return}
+  if(!bulkRows.length){toast('Nenhum passageiro para incluir','r');return}
+  const {destino,data,busId,embarquePadrao}=bulkConfig;
+
+  showLoader(true);
+  try{
+    // Resolve groups: map excel "grupo" code → real groupId; pick titular
+    const groupCodes={};
+    bulkRows.forEach(r=>{if(r.grupo&&!groupCodes[r.grupo])groupCodes[r.grupo]=newGid()});
+    // Determine titular id per group (first titular, or first member)
+    const groupTitularRowIdx={};
+    bulkRows.forEach((r,idx)=>{
+      if(!r.grupo)return;
+      if(groupTitularRowIdx[r.grupo]===undefined)groupTitularRowIdx[r.grupo]=idx; // fallback first
+      if(r.titular&&!groupTitularRowIdx['_set_'+r.grupo]){groupTitularRowIdx[r.grupo]=idx;groupTitularRowIdx['_set_'+r.grupo]=true}
+    });
+
+    // First pass: create titulars and singles to get their IDs
+    const createdIds={}; // rowIndex → vendaId
+    const newVendas=[];
+    bulkRows.forEach((r,idx)=>{
+      const emb=r.embarque||embarquePadrao||'';
+      const isGrouped=!!r.grupo;
+      const isTitular=isGrouped?(groupTitularRowIdx[r.grupo]===idx):true; // singles are their own "titular"
+      const gid=isGrouped?groupCodes[r.grupo]:null;
+      const id=newId();
+      const resp=r.responsavel||(CU?CU.nome:''); // responsável da planilha, ou usuário logado
+      createdIds[idx]=id;
+      newVendas.push({
+        rowIdx:idx,id,gid,isTitular,isGrouped,
+        venda:{
+          id,nome:r.nome,whats:r.whats,email:'',embarque:emb,destino,data,
+          valorTotal:r.valorTotal,valorPago:r.cortesia?0:r.valorPago,desconto:r.cortesia?0:r.desconto,
+          cortesia:r.cortesia,colab:resp,obs:r.obs,
+          checkin:false,groupId:gid,isComp:isGrouped&&!isTitular,
+          compOf:null, // filled in 2nd pass
+          busId:busId||null,busLock:busId?true:false,zapAdded:false,
+          criadoPor:resp,addMonitor:false,autorizadoPor:'',
+          criado:new Date().toISOString()
+        }
+      });
+    });
+    // Second pass: set compOf for companions → their group's titular id
+    newVendas.forEach(nv=>{
+      if(nv.isGrouped&&!nv.isTitular){
+        const titIdx=groupTitularRowIdx[bulkRows[nv.rowIdx].grupo];
+        nv.venda.compOf=createdIds[titIdx];
+      }
+    });
+
+    // Push to db
+    newVendas.forEach(nv=>db.vendas.push(nv.venda));
+
+    // Allocate (only those without a fixed busId get auto-placed; manual stays)
+    allocateRoute(destino,data);
+    await syncRoute(destino,data);
+    await saveNextId();
+
+    showLoader(false);
+    closeM('modal-bulk');
+    navigate('passageiros');
+    toast(`✓ ${newVendas.length} passageiro(s) importado(s)`,'g');
+  }catch(e){
+    console.error(e);
+    showLoader(false);
+    toast('Erro ao importar: '+e.message,'r');
+  }
 }
 
 // ══════════════════════════════════════════════════

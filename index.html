@@ -294,30 +294,41 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let db = { users:[], cidades:[], onibus:[], vendas:[], nextId:100 };
 
 // Map snake_case (DB) ↔ camelCase (app)
-function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,zapGrupo:b.zap_grupo||'',aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
-function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,zap_grupo:b.zapGrupo||'',aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
+function mapBusFromDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitorId:b.monitor_id,visivel:b.visivel,arquivado:b.arquivado,zapGrupo:b.zap_grupo||'',monPago:b.mon_pago,aluguel:Number(b.aluguel||0),custoMon:Number(b.custo_mon||0),outros:b.outros||[],criado:b.criado}}
+function mapBusToDB(b){return {id:b.id,destino:b.destino,data:b.data,num:b.num,cap:b.cap,monitor_id:b.monitorId,visivel:b.visivel,arquivado:b.arquivado||false,zap_grupo:b.zapGrupo||'',mon_pago:b.monPago||false,aluguel:b.aluguel||0,custo_mon:b.custoMon||0,outros:b.outros||[],criado:b.criado}}
 function mapVendaFromDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valorTotal:Number(v.valor_total),valorPago:Number(v.valor_pago||0),desconto:Number(v.desconto||0),cortesia:v.cortesia,colab:v.colab,obs:v.obs,checkin:v.checkin,groupId:v.group_id,isComp:v.is_comp,compOf:v.comp_of,busId:v.bus_id,busLock:v.bus_lock,zapAdded:v.zap_added,criadoPor:v.criado_por,addMonitor:v.add_monitor,autorizadoPor:v.autorizado_por,criado:v.criado}}
 function mapVendaToDB(v){return {id:v.id,nome:v.nome,whats:v.whats,email:v.email,embarque:v.embarque,destino:v.destino,data:v.data,valor_total:v.valorTotal,valor_pago:v.valorPago,desconto:v.desconto||0,cortesia:v.cortesia||false,colab:v.colab,obs:v.obs,checkin:v.checkin,group_id:v.groupId,is_comp:v.isComp,comp_of:v.compOf,bus_id:v.busId,bus_lock:v.busLock||false,zap_added:v.zapAdded||false,criado_por:v.criadoPor||'',add_monitor:v.addMonitor||false,autorizado_por:v.autorizadoPor||'',criado:v.criado}}
 
 // Load all data from Supabase
+// Fetch ALL rows from a table, paginating past Supabase's default 1000-row cap
+async function fetchAll(table){
+  const pageSize=1000;
+  let from=0,all=[];
+  while(true){
+    const {data,error}=await sb.from(table).select('*').range(from,from+pageSize-1);
+    if(error)throw error;
+    all=all.concat(data||[]);
+    if(!data||data.length<pageSize)break; // last page
+    from+=pageSize;
+    if(from>200000)break; // hard safety stop (200k rows)
+  }
+  return all;
+}
+
 async function loadDB(){
   showLoader(true);
   try{
     const [users,cidades,onibus,vendas,cfg] = await Promise.all([
-      sb.from('users').select('*'),
-      sb.from('cidades').select('*'),
-      sb.from('onibus').select('*'),
-      sb.from('vendas').select('*'),
+      fetchAll('users'),
+      fetchAll('cidades'),
+      fetchAll('onibus'),
+      fetchAll('vendas'),
       sb.from('config').select('*').eq('key','next_id').single()
     ]);
-    if(users.error)throw users.error;
-    if(cidades.error)throw cidades.error;
-    if(onibus.error)throw onibus.error;
-    if(vendas.error)throw vendas.error;
-    db.users = users.data || [];
-    db.cidades = (cidades.data||[]).map(c=>({id:c.id,nome:c.nome,preco:Number(c.preco),datas:c.datas||[],embarques:c.embarques||[]}));
-    db.onibus = (onibus.data||[]).map(mapBusFromDB);
-    db.vendas = (vendas.data||[]).map(mapVendaFromDB);
+    db.users = users || [];
+    db.cidades = (cidades||[]).map(c=>({id:c.id,nome:c.nome,preco:Number(c.preco),datas:c.datas||[],embarques:c.embarques||[]}));
+    db.onibus = (onibus||[]).map(mapBusFromDB);
+    db.vendas = (vendas||[]).map(mapVendaFromDB);
     db.nextId = cfg.data?.value ? Number(cfg.data.value) : 100;
     // Heal any passengers pointing to a non-existent bus (would otherwise vanish from lists)
     await healOrphanPassengers();
@@ -585,7 +596,7 @@ const NAV_ADMIN=[
   {s:'Principal'},{id:'dashboard',i:'📊',l:'Dashboard'},{id:'venda',i:'➕',l:'Nova Venda'},
   {s:'Gestão'},{id:'passageiros',i:'👥',l:'Passageiros'},{id:'onibus',i:'🚌',l:'Ônibus'},
   {id:'cidades',i:'🗺️',l:'Cidades'},{id:'pendentes',i:'⚠️',l:'Pendências'},
-  {s:'Admin'},{id:'financeiro',i:'💰',l:'Financeiro'},{id:'relatorios',i:'📄',l:'Relatórios'}
+  {s:'Admin'},{id:'financeiro',i:'💰',l:'Financeiro'},{id:'pagmonitor',i:'🧑‍✈️',l:'Pgto Monitores'},{id:'relatorios',i:'📄',l:'Relatórios'}
 ];
 const NAV_MASTER=[
   ...NAV_ADMIN,
@@ -632,7 +643,7 @@ function navigate(page){
   const renders={
     dashboard:pgDashboard,venda:pgVenda,passageiros:pgPassageiros,
     onibus:pgOnibus,cidades:pgCidades,pendentes:pgPendentes,
-    financeiro:pgFinanceiro,relatorios:pgRelatorios,
+    financeiro:pgFinanceiro,relatorios:pgRelatorios,pagmonitor:pgPagMonitor,
     usuarios:pgUsuarios,monitor:pgMonitor
   };
   if(renders[page]){
@@ -653,6 +664,7 @@ function afterRender(page){
   if(page==='pendentes')bindPendPage();
   if(page==='usuarios')bindUsuariosPage();
   if(page==='monitor')bindMonitorPage();
+  if(page==='pagmonitor')bindPagMonitor();
 }
 
 function toggleSb(){document.getElementById('sidebar').classList.toggle('on');document.getElementById('ov').classList.toggle('on')}
@@ -1157,14 +1169,39 @@ function filterPass(){
   ['fp-n','fp-d','fp-dt','fp-p','fp-c'].forEach(id=>{
     const el=document.getElementById(id);
     if(el&&!el.dataset.bound){
-      el.addEventListener('input',()=>{saveFiltersFromDOM();renderPassRows()});
-      el.addEventListener('change',()=>{saveFiltersFromDOM();renderPassRows()});
+      if(id==='fp-d'){
+        // Destination change cascades into date & responsible options
+        el.addEventListener('change',()=>{refreshPassDependentFilters();saveFiltersFromDOM();renderPassRows()});
+      } else {
+        el.addEventListener('input',()=>{saveFiltersFromDOM();renderPassRows()});
+        el.addEventListener('change',()=>{saveFiltersFromDOM();renderPassRows()});
+      }
       el.dataset.bound='1';
     }
   });
   const bulkBtn=document.getElementById('btn-bulk-upload');
   if(bulkBtn&&!bulkBtn.dataset.bound){bulkBtn.addEventListener('click',openBulkUpload);bulkBtn.dataset.bound='1'}
+  refreshPassDependentFilters();
   renderPassRows();
+}
+
+// Rebuild Data and "Cadastrado por" options to only show values that exist for the chosen destination
+function refreshPassDependentFilters(){
+  const d=document.getElementById('fp-d')?.value||'';
+  const dtSel=document.getElementById('fp-dt');
+  const crSel=document.getElementById('fp-c');
+  if(!dtSel||!crSel)return;
+  const scope=db.vendas.filter(v=>!d||v.destino===d);
+  // Dates
+  const curDt=dtSel.value;
+  const datas=[...new Set(scope.map(v=>v.data))].sort();
+  dtSel.innerHTML='<option value="">Todas</option>'+datas.map(dd=>`<option value="${dd}">${fmtD(dd)}</option>`).join('');
+  if(datas.includes(curDt))dtSel.value=curDt; else dtSel.value='';
+  // Responsibles
+  const curCr=crSel.value;
+  const crs=[...new Set(scope.map(v=>v.criadoPor).filter(Boolean))].sort();
+  crSel.innerHTML='<option value="">Todos</option>'+crs.map(c=>`<option>${escHtml(c)}</option>`).join('');
+  if(crs.includes(curCr))crSel.value=curCr; else crSel.value='';
 }
 
 function renderPassRows(){
@@ -2677,6 +2714,125 @@ function delUser(uid){
     }
     showLoader(false);
   });
+}
+
+// ══════════════════════════════════════════════════
+// PAGAMENTO DE MONITORES
+// ══════════════════════════════════════════════════
+function pgPagMonitor(){
+  // Buses to consider: have a monitor assigned, OR have passengers but no monitor (possible error to fix)
+  const buses=db.onibus.filter(b=>{
+    const hasMon=!!b.monitorId;
+    const hasPax=db.vendas.some(v=>v.busId===b.id);
+    return hasMon||hasPax;
+  });
+  // Group by date
+  const byDate={};
+  buses.forEach(b=>{
+    if(!byDate[b.data])byDate[b.data]=[];
+    byDate[b.data].push(b);
+  });
+  const dates=Object.keys(byDate).sort();
+
+  // Stats
+  let totalMon=0,pagos=0,custoTotal=0,custoPago=0;
+  buses.forEach(b=>{
+    if(b.monitorId){
+      totalMon++;
+      if(b.monPago){pagos++;custoPago+=(b.custoMon||0)}
+      custoTotal+=(b.custoMon||0);
+    }
+  });
+
+  const monOpts=db.users.filter(u=>u.role==='monitor'&&u.ativo!==false).map(u=>`<option value="${u.id}">${escHtml(u.nome)}</option>`).join('');
+
+  let body='';
+  if(!dates.length){
+    body='<div class="card" style="color:var(--g);text-align:center">Nenhum ônibus com monitor ou passageiros ainda.</div>';
+  } else {
+    body=dates.map(d=>{
+      const rows=byDate[d].sort((a,b)=>a.destino.localeCompare(b.destino)||a.num-b.num).map(b=>{
+        const mon=db.users.find(u=>u.id===b.monitorId);
+        const pax=db.vendas.filter(v=>v.busId===b.id).length;
+        const semMon=!b.monitorId;
+        const monCell=mon
+          ? `<strong>${escHtml(mon.nome)}</strong>`
+          : `<span style="color:var(--am)">⚠️ Sem monitor</span> <select data-pm-setmon="${b.id}" style="margin-left:6px;font-size:.74rem"><option value="">Atribuir...</option>${monOpts}</select>`;
+        const custoCell=b.monitorId?`<input type="number" value="${b.custoMon||''}" data-pm-custo="${b.id}" style="width:90px" placeholder="0.00">`:'—';
+        const statusCell=b.monitorId
+          ? (b.monPago
+            ? `<button class="btn b-grn bxs" data-pm-toggle="${b.id}">✅ Pago</button>`
+            : `<button class="btn b-am bxs" data-pm-toggle="${b.id}">Pendente</button>`)
+          : '—';
+        return`<tr${semMon?' style="background:var(--ad)"':''}>
+          <td><span class="chip cr">${escHtml(b.destino.split('–')[0].trim())}</span></td>
+          <td><strong>Ônibus ${b.num}</strong>${b.arquivado?' <span class="chip cw" style="font-size:.54rem">📦</span>':''}</td>
+          <td>${monCell}</td>
+          <td>${pax} pass.</td>
+          <td>${custoCell}</td>
+          <td>${statusCell}</td>
+        </tr>`;
+      }).join('');
+      return`
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-t" style="margin-bottom:10px">📅 ${fmtD(d)}</div>
+          <div class="tw"><table>
+            <thead><tr><th>Destino</th><th>Ônibus</th><th>Monitor</th><th>Passageiros</th><th>Custo (R$)</th><th>Pagamento</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>
+        </div>`;
+    }).join('');
+  }
+
+  return`
+    <div class="ph"><h2>Pagamento de Monitores</h2><p>Controle de quem trabalhou e quem já foi pago</p></div>
+    <div class="sgrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="sc"><div class="sc-icon">🧑‍✈️</div><div class="sc-lbl">Monitores escalados</div><div class="sc-val">${totalMon}</div></div>
+      <div class="sc"><div class="sc-icon">✅</div><div class="sc-lbl">Já pagos</div><div class="sc-val" style="color:var(--gr)">${pagos}</div></div>
+      <div class="sc"><div class="sc-icon">⏳</div><div class="sc-lbl">Pendentes</div><div class="sc-val" style="color:var(--am)">${totalMon-pagos}</div></div>
+      <div class="sc"><div class="sc-icon">💰</div><div class="sc-lbl">Custo pago / total</div><div class="sc-val">${money(custoPago)}</div><div class="sc-sub">de ${money(custoTotal)}</div></div>
+    </div>
+    ${body}`;
+}
+
+function bindPagMonitor(){
+  document.querySelectorAll('[data-pm-toggle]').forEach(b=>b.addEventListener('click',()=>togglePagMonitor(b.dataset.pmToggle)));
+  document.querySelectorAll('[data-pm-custo]').forEach(el=>el.addEventListener('change',e=>savePagMonitorCusto(e.target.dataset.pmCusto,e.target.value)));
+  document.querySelectorAll('[data-pm-setmon]').forEach(el=>el.addEventListener('change',e=>setBusMonitor(e.target.dataset.pmSetmon,e.target.value)));
+}
+
+async function togglePagMonitor(bid){
+  const b=db.onibus.find(x=>x.id===bid);
+  if(!b)return;
+  b.monPago=!b.monPago;
+  showLoader(true);
+  await dbSaveBus(b);
+  showLoader(false);
+  navigate('pagmonitor');
+  toast(b.monPago?'✅ Monitor marcado como pago':'Marcado como pendente',b.monPago?'g':'');
+}
+
+async function savePagMonitorCusto(bid,val){
+  const b=db.onibus.find(x=>x.id===bid);
+  if(!b)return;
+  b.custoMon=parseFloat(val)||0;
+  showLoader(true);
+  await dbSaveBus(b);
+  showLoader(false);
+  navigate('pagmonitor');
+  toast('✓ Custo do monitor atualizado','g');
+}
+
+async function setBusMonitor(bid,monId){
+  const b=db.onibus.find(x=>x.id===bid);
+  if(!b||!monId)return;
+  b.monitorId=monId;
+  showLoader(true);
+  await dbSaveBus(b);
+  showLoader(false);
+  navigate('pagmonitor');
+  const mon=db.users.find(u=>u.id===monId);
+  toast(`✓ ${mon?mon.nome:'Monitor'} atribuído ao ônibus`,'g');
 }
 
 // ══════════════════════════════════════════════════

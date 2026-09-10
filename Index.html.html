@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SORTEAGRAM</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const Icon = ({ path, className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: path }} />
+);
+
+const Instagram = (p) => <Icon {...p} path='<rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>' />;
+const Sparkles = (p) => <Icon {...p} path='<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/>' />;
+const Trophy = (p) => <Icon {...p} path='<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>' />;
+const RefreshCw = (p) => <Icon {...p} path='<path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>' />;
+const Copy = (p) => <Icon {...p} path='<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' />;
+const Camera = (p) => <Icon {...p} path='<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>' />;
+const Settings = (p) => <Icon {...p} path='<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>' />;
+const Upload = (p) => <Icon {...p} path='<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>' />;
+const ImageIcon = (p) => <Icon {...p} path='<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' />;
+const Home = (p) => <Icon {...p} path='<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' />;
+const HelpCircle = (p) => <Icon {...p} path='<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>' />;
+const Wrench = (p) => <Icon {...p} path='<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>' />;
+const Facebook = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.8-4.7 4.56-4.7 1.32 0 2.7.24 2.7.24v2.97h-1.52c-1.5 0-1.97.93-1.97 1.88v2.26h3.35l-.54 3.49h-2.81V24C19.61 23.09 24 18.1 24 12.07z"/></svg>;
+const Twitter = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M23.95 4.57a10 10 0 01-2.82.77 4.96 4.96 0 002.16-2.72c-.95.56-2 .96-3.13 1.18a4.92 4.92 0 00-8.38 4.48A13.94 13.94 0 011.64 3.16a4.82 4.82 0 001.52 6.57 4.9 4.9 0 01-2.23-.62v.06a4.92 4.92 0 003.95 4.83 4.99 4.99 0 01-2.21.08 4.93 4.93 0 004.6 3.42 9.87 9.87 0 01-6.1 2.1c-.4 0-.78-.02-1.17-.07a14 14 0 007.56 2.21c9.05 0 14-7.5 14-13.99 0-.21 0-.42-.02-.63A9.93 9.93 0 0024 4.59z"/></svg>;
+const Youtube = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.19a3 3 0 00-2.12-2.14C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.5A3 3 0 00.5 6.19C0 8.07 0 12 0 12s0 3.93.5 5.81a3 3 0 002.12 2.14c1.88.5 9.38.5 9.38.5s7.5 0 9.38-.5a3 3 0 002.12-2.14C24 15.93 24 12 24 12s0-3.93-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></svg>;
+
+function App() {
+  const [step, setStep] = useState(0);
+  const [postUrl, setPostUrl] = useState('');
+  const [parsedComments, setParsedComments] = useState([]);
+  const [winners, setWinners] = useState(1);
+  const [ignoreDuplicates, setIgnoreDuplicates] = useState(true);
+  const [ignoreNoMention, setIgnoreNoMention] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [winner, setWinner] = useState(null);
+  const [rollingComments, setRollingComments] = useState([]);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [adminMode, setAdminMode] = useState(false);
+  const [fixedWinner, setFixedWinner] = useState('');
+  const [fixedWinnerComment, setFixedWinnerComment] = useState('');
+  const [useFixedWinner, setUseFixedWinner] = useState(false);
+  const [preloadedComments, setPreloadedComments] = useState('');
+  const [showPreloadField, setShowPreloadField] = useState(false);
+  const [loadingDelay, setLoadingDelay] = useState(3);
+  const [drawingDelay, setDrawingDelay] = useState(5);
+  const [fakeCommentsCount, setFakeCommentsCount] = useState('');
+  const [winnerProfileImage, setWinnerProfileImage] = useState('');
+  const [postImage, setPostImage] = useState('');
+  const [postUsername, setPostUsername] = useState('');
+
+  const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const postImageInputRef = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (e.ctrlKey && e.key === 'k') { e.preventDefault(); setAdminMode(p => !p); } };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
+  const parseComments = (text) => text.split('\n').filter(l => l.trim()).map((line, idx) => {
+    const m = line.match(/@([\w._]+)\s+(.+)/);
+    if (m) return { id: idx, username: m[1], text: m[2].trim() };
+    const f = line.match(/@([\w._]+)/);
+    return { id: idx, username: f ? f[1] : `user${idx}`, text: line.trim() };
+  });
+
+  const filterComments = (comments) => {
+    let f = [...comments];
+    if (ignoreDuplicates) { const seen = new Set(); f = f.filter(c => { if (seen.has(c.username)) return false; seen.add(c.username); return true; }); }
+    if (ignoreNoMention) f = f.filter(c => c.text.includes('@'));
+    return f;
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) { const r = new FileReader(); r.onload = (ev) => { setPreloadedComments(ev.target.result); setParsedComments(parseComments(ev.target.result)); }; r.readAsText(file); }
+  };
+  const handleImageUpload = (e) => { const f = e.target.files[0]; if (f) { const r = new FileReader(); r.onload = (ev) => setWinnerProfileImage(ev.target.result); r.readAsDataURL(f); } };
+  const handlePostImageUpload = (e) => { const f = e.target.files[0]; if (f) { const r = new FileReader(); r.onload = (ev) => setPostImage(ev.target.result); r.readAsDataURL(f); } };
+
+  const startLoadingComments = () => {
+    setIsLoadingComments(true); setLoadProgress(0);
+    const total = loadingDelay * 1000;
+    const interval = setInterval(() => {
+      setLoadProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            setIsLoadingComments(false);
+            if (preloadedComments) setParsedComments(parseComments(preloadedComments));
+            else setParsedComments(Array.from({ length: 50 }, (_, i) => ({ id: i, username: `usuario${i+1}`, text: `Comentário ${i+1} 🎉` })));
+            setStep(2);
+          }, 500);
+          return 100;
+        }
+        return Math.min(prev + (100 / (total / 50)), 100);
+      });
+    }, 50);
+  };
+
+  const startDraw = () => {
+    setStep(3); setIsDrawing(true);
+    const filtered = filterComments(parsedComments);
+    if (filtered.length === 0) { alert('Nenhum comentário para sortear!'); setStep(2); return; }
+    const totalRolls = (drawingDelay * 1000 - 1000) / 100;
+    let count = 0;
+    const interval = setInterval(() => {
+      const rc = filtered[Math.floor(Math.random() * filtered.length)];
+      if (rc) setRollingComments(prev => [...prev.slice(-5), rc]);
+      if (++count >= totalRolls) {
+        clearInterval(interval);
+        setTimeout(() => {
+          let sw;
+          if (useFixedWinner && fixedWinner) sw = { id: 9999, username: fixedWinner.replace('@',''), text: fixedWinnerComment || 'Comentário vencedor' };
+          else sw = filtered[Math.floor(Math.random() * filtered.length)];
+          setWinner(sw); setIsDrawing(false); setStep(4);
+        }, 1000);
+      }
+    }, 100);
+  };
+
+  const resetDraw = () => {
+    setStep(0); setPostUrl(''); setParsedComments([]); setWinner(null); setRollingComments([]);
+    setPreloadedComments(''); setFixedWinner(''); setFixedWinnerComment(''); setUseFixedWinner(false); setFakeCommentsCount('');
+  };
+
+  const getDisplayCount = () => fakeCommentsCount && !isNaN(fakeCommentsCount) ? Number(fakeCommentsCount).toLocaleString() : parsedComments.length.toLocaleString();
+  const getFilteredCount = () => fakeCommentsCount && !isNaN(fakeCommentsCount) ? Math.round(Number(fakeCommentsCount) * 0.975).toLocaleString() : filterComments(parsedComments).length.toLocaleString();
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="bg-white shadow-sm border-b sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <button onClick={() => setStep(0)} className="flex items-center gap-2">
+              <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-2 rounded-lg"><Instagram className="w-6 h-6 text-white" /></div>
+              <span className="text-2xl font-black bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">SORTEAGRAM</span>
+            </button>
+            <nav className="hidden md:flex gap-6">
+              <button onClick={() => setStep(0)} className="flex items-center gap-2 text-gray-700 text-sm font-medium"><Home className="w-4 h-4" />Início</button>
+              <button className="flex items-center gap-2 text-gray-700 text-sm font-medium"><Wrench className="w-4 h-4" />Ferramentas</button>
+              <button className="flex items-center gap-2 text-gray-700 text-sm font-medium"><HelpCircle className="w-4 h-4" />Suporte</button>
+            </nav>
+          </div>
+          <button className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 py-2 rounded-lg font-semibold text-sm">Fazer Sorteio</button>
+        </div>
+      </header>
+
+      {adminMode && (
+        <div className="fixed top-20 right-4 bg-black/90 text-white p-4 rounded-lg shadow-2xl z-50 border border-red-500 max-w-sm max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center gap-2 mb-3"><Settings className="w-4 h-4 text-red-500" /><span className="font-bold text-sm">MODO ADMIN</span></div>
+          <div className="space-y-3">
+            <div className="border-t border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-300 block mb-2">DELAYS (segundos)</label>
+              <input type="number" value={loadingDelay} onChange={e => setLoadingDelay(Number(e.target.value))} className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700 mb-2" placeholder="Carregamento" />
+              <input type="number" value={drawingDelay} onChange={e => setDrawingDelay(Number(e.target.value))} className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700" placeholder="Sorteio" />
+            </div>
+            <div className="border-t border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-300 block mb-2">QTD EXIBIDA</label>
+              <input type="number" value={fakeCommentsCount} onChange={e => setFakeCommentsCount(e.target.value)} className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700" placeholder="10000" />
+            </div>
+            <div className="border-t border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-300 block mb-2">IMAGEM DO POST</label>
+              <button onClick={() => postImageInputRef.current?.click()} className="w-full px-3 py-2 bg-gray-700 rounded text-xs flex items-center justify-center gap-2 mb-2"><ImageIcon className="w-3 h-3" />{postImage ? 'Alterar' : 'Upload'}</button>
+              <input ref={postImageInputRef} type="file" accept="image/*" onChange={handlePostImageUpload} className="hidden" />
+              {postImage && <button onClick={() => setPostImage('')} className="text-xs text-red-400">Remover</button>}
+              <input type="text" value={postUsername} onChange={e => setPostUsername(e.target.value)} className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700 mt-2" placeholder="@usuario_do_post" />
+            </div>
+            <div className="border-t border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-300 block mb-2">FOTO VENCEDOR</label>
+              <button onClick={() => imageInputRef.current?.click()} className="w-full px-3 py-2 bg-gray-700 rounded text-xs flex items-center justify-center gap-2"><ImageIcon className="w-3 h-3" />{winnerProfileImage ? 'Alterar' : 'Upload'}</button>
+              <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+              {winnerProfileImage && <button onClick={() => setWinnerProfileImage('')} className="text-xs text-red-400 mt-1">Remover</button>}
+            </div>
+            <div className="border-t border-gray-700 pt-3">
+              <div className="flex justify-between mb-2"><label className="text-xs font-semibold text-gray-300">COMENTÁRIOS</label><button onClick={() => setShowPreloadField(!showPreloadField)} className="text-xs text-purple-400">{showPreloadField ? 'Ocultar' : 'Mostrar'}</button></div>
+              {showPreloadField && (
+                <>
+                  <textarea value={preloadedComments} onChange={e => { setPreloadedComments(e.target.value); setParsedComments(parseComments(e.target.value)); }} rows="6" className="w-full px-3 py-2 bg-gray-800 rounded text-xs font-mono border border-gray-700 mb-2" placeholder="@user @amigo Comentário" />
+                  <button onClick={() => fileInputRef.current?.click()} className="w-full px-3 py-2 bg-gray-700 rounded text-xs flex items-center justify-center gap-2"><Upload className="w-3 h-3" />Upload TXT</button>
+                  <input ref={fileInputRef} type="file" accept=".txt" onChange={handleFileUpload} className="hidden" />
+                  {parsedComments.length > 0 && <div className="bg-green-900/50 px-2 py-1 rounded text-xs mt-2">✓ {parsedComments.length} comentários</div>}
+                </>
+              )}
+            </div>
+            <div className="border-t border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-300 block mb-2">VENCEDOR FIXO</label>
+              <input type="text" value={fixedWinner} onChange={e => setFixedWinner(e.target.value)} className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700 mb-2" placeholder="@usuario" />
+              <textarea value={fixedWinnerComment} onChange={e => setFixedWinnerComment(e.target.value)} rows="3" className="w-full px-3 py-2 bg-gray-800 rounded text-sm border border-gray-700 mb-2" placeholder="Comentário" />
+              <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={useFixedWinner} onChange={e => setUseFixedWinner(e.target.checked)} className="w-4 h-4" />Forçar vencedor</label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main className="flex-1 bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500 py-8 px-4">
+        <div className="max-w-4xl mx-auto">
+          {step === 0 && (
+            <>
+              <div className="bg-gradient-to-br from-pink-600 to-purple-600 rounded-3xl shadow-2xl p-8 md:p-16 mb-8 relative overflow-hidden">
+                <div className="text-center text-white mb-8">
+                  <h1 className="text-4xl md:text-6xl font-black mb-6">Sorteio no Instagram</h1>
+                  <p className="text-lg md:text-xl mb-8 max-w-3xl mx-auto">Escolha aleatoriamente um comentário vencedor das suas fotos, carrosséis e reels do Instagram.</p>
+                </div>
+                <div className="max-w-3xl mx-auto">
+                  <div className="bg-white rounded-2xl shadow-2xl p-2 flex items-center gap-2">
+                    <div className="pl-4"><Instagram className="w-6 h-6 text-gray-400" /></div>
+                    <input type="text" value={postUrl} onChange={e => setPostUrl(e.target.value)} placeholder="Usuário do Instagram ou URL do Post" className="flex-1 px-2 py-3 text-gray-700 focus:outline-none text-lg" />
+                    <button onClick={() => postUrl.trim() && setStep(1)} disabled={!postUrl.trim()} className="bg-gradient-to-r from-pink-500 to-pink-600 text-white font-bold px-8 py-3 rounded-xl disabled:opacity-50">Iniciar</button>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+                <div className="text-center mb-12">
+                  <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Sorteios simples e eficazes</h2>
+                  <h3 className="text-3xl md:text-4xl font-bold text-pink-600 mb-8">sem precisar fazer login</h3>
+                  <div className="max-w-3xl mx-auto space-y-4 text-gray-700">
+                    <p>Conecte-se com o público certo e aumente o alcance da sua conta.</p>
+                    <p>Crie sorteios únicos que atraiam novos seguidores, gerem engajamento e aumentem suas vendas sem perder tempo.</p>
+                    <p>Cole o link, defina as regras e escolha os vencedores em segundos.</p>
+                    <p className="font-bold text-gray-900 text-lg mt-6">Simples assim.</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {step === 1 && !isLoadingComments && (
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <div className="max-w-md mx-auto">
+                <div className="relative mb-6">
+                  <div className="relative w-full aspect-[4/5] rounded-2xl overflow-hidden border-8 border-white shadow-2xl transform -rotate-3">
+                    {postImage ? <img src={postImage} alt="Post" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center"><Instagram className="w-24 h-24 text-white opacity-50" /></div>}
+                  </div>
+                  <div className="absolute -top-4 -left-4 bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg transform -rotate-12"><span className="font-bold text-sm">ONDETEMPE</span></div>
+                  <div className="absolute -top-2 -right-2 bg-white rounded-2xl shadow-xl px-4 py-2 transform rotate-6"><div className="text-3xl font-black text-gray-900">{getDisplayCount()}</div><div className="text-xs font-bold text-pink-600">Comentários</div></div>
+                </div>
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 rounded-full mb-3 p-1"><div className="w-full h-full bg-white rounded-full flex items-center justify-center"><Instagram className="w-8 h-8 text-purple-600" /></div></div>
+                  <p className="text-gray-600 text-sm font-medium mb-1">Giveaway by</p>
+                  <p className="text-2xl font-black text-gray-900">@{postUsername || 'ondetempe'}</p>
+                </div>
+                <button onClick={startLoadingComments} className="w-full bg-gradient-to-r from-pink-500 to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg mb-3">CARREGAR COMENTÁRIOS</button>
+                <button onClick={() => setStep(0)} className="w-full text-gray-500 text-sm font-medium">Voltar</button>
+              </div>
+            </div>
+          )}
+
+          {step === 1 && isLoadingComments && (
+            <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 text-center">
+              <div className="mb-8">
+                <div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mb-4"><Instagram className="w-12 h-12 text-white animate-pulse" /></div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">Carregando comentários...</h2>
+              </div>
+              <div className="max-w-md mx-auto">
+                <div className="bg-gray-200 rounded-full h-3 mb-2"><div className="bg-gradient-to-r from-purple-500 to-pink-500 h-full rounded-full" style={{width: `${loadProgress}%`}}></div></div>
+                <p className="text-sm text-gray-600">{Math.round(loadProgress)}%</p>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+              <h2 className="text-3xl font-bold text-gray-800 mb-6">Configuração do Sorteio</h2>
+              <div className="bg-green-50 border-l-4 border-green-500 px-4 py-3 rounded mb-6"><p className="text-sm text-green-800">✓ <strong>{getDisplayCount()}</strong> comentários carregados</p></div>
+              <div className="space-y-6">
+                <div><label className="block text-sm font-medium text-gray-700 mb-2">Quantidade de vencedores</label><input type="number" value={winners} onChange={e => setWinners(Number(e.target.value))} min="1" className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl" /></div>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={ignoreDuplicates} onChange={e => setIgnoreDuplicates(e.target.checked)} className="w-5 h-5" /><span>Ignorar duplicados</span></label>
+                  <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={ignoreNoMention} onChange={e => setIgnoreNoMention(e.target.checked)} className="w-5 h-5" /><span>Ignorar sem @</span></label>
+                </div>
+                <div className="bg-purple-50 px-4 py-3 rounded-lg"><p className="text-sm text-purple-800"><strong>{getFilteredCount()}</strong> após filtros</p></div>
+                <button onClick={startDraw} className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-4 rounded-xl flex items-center justify-center gap-2"><Sparkles className="w-5 h-5" />Iniciar Sorteio</button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && isDrawing && (
+            <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 text-center">
+              <div className="mb-8"><div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mb-4 animate-spin"><Sparkles className="w-12 h-12 text-white" /></div><h2 className="text-4xl font-bold text-gray-800">🎲 Sorteando...</h2></div>
+              <div className="space-y-2 max-h-64 overflow-hidden">{rollingComments.map((c, i) => c && <div key={i} className="bg-gray-100 px-4 py-3 rounded-lg"><p className="font-semibold text-gray-800">@{c.username}</p><p className="text-sm text-gray-600 truncate">{c.text}</p></div>)}</div>
+            </div>
+          )}
+
+          {step === 4 && winner && (
+            <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 text-center">
+              <div className="mb-8"><div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full mb-4 animate-bounce"><Trophy className="w-12 h-12 text-white" /></div><h2 className="text-5xl font-bold text-gray-800">🏆 VENCEDOR(A)</h2></div>
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-8 mb-6">
+                {winnerProfileImage ? <img src={winnerProfileImage} alt="Vencedor" className="w-20 h-20 rounded-full mx-auto mb-4 object-cover border-4 border-purple-500" /> : <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mx-auto mb-4 flex items-center justify-center"><span className="text-3xl text-white font-bold">{winner.username[0].toUpperCase()}</span></div>}
+                <h3 className="text-3xl font-bold text-gray-800 mb-3">@{winner.username}</h3>
+                <p className="text-lg text-gray-700 italic">"{winner.text}"</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <button onClick={resetDraw} className="flex items-center justify-center gap-2 bg-gray-200 text-gray-700 font-semibold py-3 rounded-xl"><RefreshCw className="w-5 h-5" />Novo</button>
+                <button onClick={() => { navigator.clipboard.writeText(`🏆 @${winner.username}\n"${winner.text}"`); alert('Copiado!'); }} className="flex items-center justify-center gap-2 bg-purple-600 text-white font-semibold py-3 rounded-xl"><Copy className="w-5 h-5" />Copiar</button>
+                <button className="flex items-center justify-center gap-2 bg-pink-600 text-white font-semibold py-3 rounded-xl"><Camera className="w-5 h-5" />Imagem</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+
+      <footer className="bg-gray-900 text-gray-300 py-8 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-wrap justify-center gap-8 md:gap-12 mb-6">
+            {[
+              {title:'Sobre', links:['Sobre Nós','Como Funciona']},
+              {title:'Legal', links:['Privacidade','Termos']},
+              {title:'Recursos', links:['Blog','Tutoriais']},
+              {title:'Suporte', links:['Contato','FAQ']},
+              {title:'Ferramentas', links:['Instagram','Facebook']}
+            ].map((s,i) => (
+              <div key={i} className="text-center">
+                <h3 className="text-white font-bold mb-3 text-sm">{s.title}</h3>
+                <ul className="space-y-1 text-xs">{s.links.map((l,j) => <li key={j}><a href="#" className="hover:text-purple-400">{l}</a></li>)}</ul>
+              </div>
+            ))}
+            <div className="text-center">
+              <h3 className="text-white font-bold mb-3 text-sm">Redes Sociais</h3>
+              <div className="flex gap-2 justify-center">
+                <a href="#" className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center"><Facebook className="w-4 h-4" /></a>
+                <a href="#" className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center"><Twitter className="w-4 h-4" /></a>
+                <a href="#" className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center"><Youtube className="w-4 h-4" /></a>
+              </div>
+            </div>
+          </div>
+          <div className="pt-4 border-t border-gray-800 text-center text-xs"><p>© 2026 SORTEAGRAM. Todos os direitos reservados.</p></div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
